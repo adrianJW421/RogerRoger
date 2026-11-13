@@ -113,8 +113,7 @@ need_cmd swift
 need_cmd ditto
 need_cmd lipo
 
-SWIFT_BUILD_ARGS=(-c release -Xswiftc -file-prefix-map -Xswiftc "$ROOT=RogerRoger"
-  -Xswiftc -debug-prefix-map -Xswiftc "$ROOT=RogerRoger")
+SWIFT_BUILD_ARGS=(-c release -debug-info-format none -Xswiftc -file-prefix-map -Xswiftc "$ROOT=RogerRoger")
 
 NODE_MAJOR="$(node -p 'Number(process.versions.node.split(".")[0])')"
 if [ "$NODE_MAJOR" -lt 18 ]; then

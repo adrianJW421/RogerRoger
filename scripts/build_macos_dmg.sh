@@ -5,7 +5,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 VERSION="${VERSION:-0.4.1}"
 BUILD_NUMBER="${BUILD_NUMBER:-10.8}"
 SOURCE_COMMIT="$(git -C "$ROOT" rev-parse "${SOURCE_COMMIT:-HEAD}^{commit}")"
-WORK="$(mktemp -d "${TMPDIR:-/tmp}/rogerroger-release.XXXXXX")"
+WORK="$(mktemp -d /private/tmp/rogerroger-release.XXXXXX)"
 WORK="$(cd "$WORK" && pwd -P)"
 trap 'if [ -d "$WORK/mounted" ]; then hdiutil detach "$WORK/mounted" >/dev/null 2>&1 || true; fi; rm -rf "$WORK"' EXIT
 mkdir -p "$WORK/source" "$WORK/image" "$ROOT/dist"
@@ -19,9 +19,9 @@ for p in root.rglob('*'):
     assert p.name != '.local' and p.suffix not in ('.keystore', '.jks', '.p12'), 'Private file in source archive'
 CHECK
 ( cd "$WORK/source/web" && npm ci --no-audit --no-fund )
-mkdir -p "$WORK/module-cache"
+mkdir -p "$WORK/module-cache" "$WORK/tmp"
 ( cd "$WORK/source" && VERSION="$VERSION" BUILD_NUMBER="$BUILD_NUMBER" SWIFT_ARCHS="arm64 x86_64" \
-  CLANG_MODULE_CACHE_PATH="$WORK/module-cache" SWIFTPM_MODULECACHE_OVERRIDE="$WORK/module-cache" \
+  TMPDIR="$WORK/tmp/" CLANG_MODULE_CACHE_PATH="$WORK/module-cache" SWIFTPM_MODULECACHE_OVERRIDE="$WORK/module-cache" \
   bash scripts/build_app.sh )
 ditto --norsrc --noextattr --noqtn --noacl "$WORK/source/dist/RogerRoger.app" "$WORK/image/RogerRoger.app"
 ln -s /Applications "$WORK/image/Applications"
@@ -29,7 +29,8 @@ python3 - "$WORK/image/RogerRoger.app" "$ROOT" <<'CHECK'
 from pathlib import Path
 import sys
 app=Path(sys.argv[1])
-markers=[str(Path(sys.argv[2]).resolve()).encode(), str(Path.home()).encode()]
+markers=[str(Path(sys.argv[2]).resolve()).encode(), str(Path.home()).encode(),
+         b"/private/var/folders/", b"/var/folders/"]
 for p in app.rglob('*'):
     if p.is_symlink() or not p.is_file(): continue
     assert p.name.lower() != 'handoff.md' and '.local' not in p.parts
