@@ -1,20 +1,21 @@
 #!/usr/bin/env bash
-# Build a local-signed VibeCast.app release package.
+# Build a local-signed RogerRoger.app release package.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 MAC="$ROOT/mac"
 DIST="$ROOT/dist"
-STAGING_DIR="$(mktemp -d "${TMPDIR:-/tmp}/vibecast-app.XXXXXX")"
-APP="$STAGING_DIR/VibeCast.app"
-DIST_APP="$DIST/VibeCast.app"
+STAGING_DIR="$(mktemp -d "${TMPDIR:-/tmp}/rogerroger-app.XXXXXX")"
+STAGING_DIR="$(cd "$STAGING_DIR" && pwd -P)"
+APP="$STAGING_DIR/RogerRoger.app"
+DIST_APP="$DIST/RogerRoger.app"
 BUNDLE_ID="${BUNDLE_ID:-com.vibecast.app}"
-VERSION="${VERSION:-0.1.0}"
+VERSION="${VERSION:-0.4.0}"
 BUILD_NUMBER="${BUILD_NUMBER:-$VERSION}"
 SWIFT_ARCHS="${SWIFT_ARCHS:-arm64 x86_64}"
-APPCAST_URL="${APPCAST_URL:-https://pls-1q43.github.io/VibeCast/appcast.xml}"
-SPARKLE_PUBLIC_ED_KEY="${SPARKLE_PUBLIC_ED_KEY:-IqzH3LOJYajczC0ywxHO2dd+P8rVjAZKru+JZ4H1oLM=}"
-ZIP="$DIST/VibeCast-$VERSION-macos.zip"
+APPCAST_URL="${APPCAST_URL:-}"
+SPARKLE_PUBLIC_ED_KEY="${SPARKLE_PUBLIC_ED_KEY:-}"
+ZIP="$DIST/RogerRoger-$VERSION-macos.zip"
 WEB_RES="$MAC/Sources/VibeCast/Resources/web"
 APP_ICON="$MAC/Sources/VibeCast/Resources/AppIcon.icns"
 STATUS_BAR_ICON="$MAC/Sources/VibeCast/Resources/StatusBarIconTemplate.png"
@@ -73,9 +74,15 @@ verify_bundle_signature() {
 verify_zip_bundle() {
   local zip="$1"
   local verify_dir
-  verify_dir="$(mktemp -d "${TMPDIR:-/tmp}/vibecast-verify.XXXXXX")"
-  ditto -x -k "$zip" "$verify_dir"
-  if verify_bundle_signature "$verify_dir/VibeCast.app"; then
+  verify_dir="$(mktemp -d "${TMPDIR:-/tmp}/rogerroger-verify.XXXXXX")"
+  # macOS /var is a symlink. ditto can reject framework symlinks when the
+  # destination is noncanonical, even for an otherwise valid signed archive.
+  verify_dir="$(cd "$verify_dir" && pwd -P)"
+  if ! ditto -x -k "$zip" "$verify_dir"; then
+    rm -rf "$verify_dir"
+    return 1
+  fi
+  if verify_bundle_signature "$verify_dir/RogerRoger.app"; then
     rm -rf "$verify_dir"
     return 0
   fi
@@ -189,8 +196,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>CFBundleName</key><string>VibeCast</string>
-  <key>CFBundleDisplayName</key><string>VibeCast</string>
+  <key>CFBundleName</key><string>RogerRoger</string>
+  <key>CFBundleDisplayName</key><string>RogerRoger</string>
   <key>CFBundleIdentifier</key><string>$BUNDLE_ID</string>
   <key>CFBundleVersion</key><string>$BUILD_NUMBER</string>
   <key>CFBundleShortVersionString</key><string>$VERSION</string>
@@ -201,6 +208,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <!-- 菜单栏 App：不在 Dock 显示 -->
   <key>LSUIElement</key><true/>
   <key>NSHighResolutionCapable</key><true/>
+  <key>SUEnableAutomaticChecks</key><false/>
+  <key>SUAutomaticallyUpdate</key><false/>
   <key>SUFeedURL</key><string>$APPCAST_URL</string>
   <key>SUPublicEDKey</key><string>$SPARKLE_PUBLIC_ED_KEY</string>
 </dict>
@@ -244,7 +253,9 @@ fi
 
 echo "==> 生成发布压缩包"
 rm -f "$ZIP"
-( cd "$STAGING_DIR" && ditto -c -k --sequesterRsrc --keepParent "VibeCast.app" "$ZIP" )
+# Do not ship host-specific AppleDouble metadata or extended attributes
+# alongside the signed application payload.
+( cd "$STAGING_DIR" && ditto --norsrc --noextattr --noqtn --noacl -c -k --keepParent "RogerRoger.app" "$ZIP" )
 if command -v codesign >/dev/null 2>&1; then
   verify_zip_bundle "$ZIP"
 fi

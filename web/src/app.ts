@@ -1,4 +1,4 @@
-// VibeCast 手机端主编排：串联 DraftStore + IMEController + WSClient + Cards。
+// RogerRoger 手机端主编排：串联 DraftStore + IMEController + WSClient + Cards。
 // PRD 4.2 / 4.3 / 5 / 6 / 11 / 12 / 16。
 
 import { type TargetId, type ServerMessage, type TargetInfo } from "./ws/protocol.ts";
@@ -95,7 +95,7 @@ export class App {
     logo.alt = "";
     logo.setAttribute("aria-hidden", "true");
     const name = document.createElement("strong");
-    name.textContent = "VibeCast";
+    name.textContent = "RogerRoger";
     const tools = document.createElement("div");
     tools.className = "brandbar__tools";
     tools.append(this.renderThemeSwitch(), this.renderLanguagePicker());

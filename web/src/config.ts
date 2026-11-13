@@ -1,4 +1,4 @@
-// VibeCast 配置页（PRD 20）。由 Mac 托管，通过 WebSocket 读写目标 Profile。
+// RogerRoger 配置页（PRD 20）。由 Mac 托管，通过 WebSocket 读写目标 Profile。
 import "./ui/styles.css";
 import "./ui/config.css";
 import {
@@ -198,7 +198,7 @@ function renderHeader(): HTMLElement {
   logo.alt = "";
   logo.setAttribute("aria-hidden", "true");
   const brandName = document.createElement("span");
-  brandName.textContent = "VibeCast";
+  brandName.textContent = "RogerRoger";
   brand.append(logo, brandName, renderLanguagePicker());
   const h = document.createElement("h1");
   h.textContent = i18n.t("cfg.title");

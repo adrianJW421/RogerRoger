@@ -118,7 +118,7 @@ public final class MainActivity extends Activity implements RelayClient.Events {
         FrameLayout.LayoutParams rootParams = new FrameLayout.LayoutParams(dp(480), -1, Gravity.CENTER);
         rootParams.width = Math.min(dp(480), getResources().getDisplayMetrics().widthPixels);
         frame.addView(scroll, rootParams);
-        root.addView(label("VibeCast", 26, dark));
+        root.addView(label("RogerRoger", 26, dark));
         connectionLabel = label("正在连接电脑", 15, muted); root.addView(connectionLabel);
         targetLabel = label("在 Mac 上点进输入框", 17, dark); root.addView(targetLabel);
         micButton = new Button(this); micButton.setTextSize(28); micButton.setAllCaps(false);
@@ -193,7 +193,7 @@ public final class MainActivity extends Activity implements RelayClient.Events {
     }
     private void connect() {
         String value = prefs.getString("url", "");
-        if (value.isEmpty()) { notice = "先连接电脑上的 VibeCast"; render(); return; }
+        if (value.isEmpty()) { notice = "先连接电脑上的 RogerRoger"; render(); return; }
         try {
             HttpUrl url = validate(value);
             String socketUrl = url.newBuilder().encodedPath("/ws").query(null).fragment(null).build().toString();
@@ -209,7 +209,7 @@ public final class MainActivity extends Activity implements RelayClient.Events {
         input.setHint("粘贴 Mac 上的连接链接"); input.setText(prefs.getString("url", ""));
         input.setSelectAllOnFocus(true); input.setPadding(dp(20), dp(16), dp(20), dp(16));
         new AlertDialog.Builder(this).setTitle("连接电脑")
-                .setMessage("手机与 Mac 连接同一网络, 使用 VibeCast 菜单里的手机连接链接")
+                .setMessage("手机与 Mac 连接同一网络, 使用 RogerRoger 菜单里的手机连接链接")
                 .setView(input).setNegativeButton("取消", null)
                 .setPositiveButton("连接", (dialog, which) -> {
                     String value = input.getText().toString().trim();
@@ -242,7 +242,7 @@ public final class MainActivity extends Activity implements RelayClient.Events {
         String type = message.optString("type");
         if ("hello_ack".equals(type)) {
             if (!message.optBoolean("followFocusSupported") || !message.optBoolean("accessibilityGranted")) {
-                notice = "请检查 Mac 的 VibeCast 版本和辅助功能权限"; blocked = true; relay.close(); render(); return;
+                notice = "请检查 Mac 的 RogerRoger 版本和辅助功能权限"; blocked = true; relay.close(); render(); return;
             }
             enterSupported = message.optBoolean("currentAppEnterSupported");
             connected = true; connectionState = "connected"; notice = ""; followCurrent(); render();
@@ -494,7 +494,7 @@ public final class MainActivity extends Activity implements RelayClient.Events {
         handler.postDelayed(() -> {
             diagnosticsScheduled = false;
             // Metadata only: never persist speech, token, connection URL or input-buffer contents.
-            JSONObject data = RelayClient.json("version", "0.1.2", "connected", connected, "focused", focused,
+            JSONObject data = RelayClient.json("version", "0.1.3", "connected", connected, "focused", focused,
                     "listening", listening, "settling", settling, "controlReady", controlledIme != null && controlledIme.isReady(),
                     "textUpdates", textUpdates, "sentSnapshots", sentSnapshots, "acknowledgedSnapshots", acknowledgedSnapshots,
                     "revision", revision, "lastAck", lastAck, "notice", notice,

@@ -3,8 +3,8 @@ import Sparkle
 
 final class AboutWindowController: NSWindowController {
     private let updaterController: SPUStandardUpdaterController
-    private let projectURL = URL(string: "https://github.com/Pls-1q43/VibeCast")!
-    private let authorURL = URL(string: "https://x.com/JeffreyCalm")!
+    private let projectURL = URL(string: "https://github.com/adrianJW421/RogerRoger")!
+    private let upstreamURL = URL(string: "https://github.com/Pls-1q43/VibeCast")!
 
     init(updaterController: SPUStandardUpdaterController) {
         self.updaterController = updaterController
@@ -35,15 +35,16 @@ final class AboutWindowController: NSWindowController {
         icon.translatesAutoresizingMaskIntoConstraints = false
         icon.imageScaling = .scaleProportionallyUpOrDown
 
-        let title = label("VibeCast", font: .systemFont(ofSize: 24, weight: .semibold), alignment: .center)
+        let title = label("RogerRoger", font: .systemFont(ofSize: 24, weight: .semibold), alignment: .center)
         let version = label(MacI18n.f("aboutVersion", AppVersion.display), font: .systemFont(ofSize: 13), alignment: .center)
         version.textColor = .secondaryLabelColor
 
         let checkUpdates = NSButton(title: MacI18n.t("checkForUpdates"), target: updaterController, action: #selector(SPUStandardUpdaterController.checkForUpdates(_:)))
         checkUpdates.translatesAutoresizingMaskIntoConstraints = false
+        checkUpdates.isEnabled = updaterController.updater.canCheckForUpdates
 
         let project = linkButton(MacI18n.t("projectHomepage"), action: #selector(openProjectHomepage))
-        let author = linkButton(MacI18n.t("authorX"), action: #selector(openAuthorX))
+        let author = linkButton("VibeCast (upstream)", action: #selector(openUpstreamProject))
 
         let links = NSStackView(views: [project, author])
         links.translatesAutoresizingMaskIntoConstraints = false
@@ -103,7 +104,7 @@ final class AboutWindowController: NSWindowController {
         NSWorkspace.shared.open(projectURL)
     }
 
-    @objc private func openAuthorX() {
-        NSWorkspace.shared.open(authorURL)
+    @objc private func openUpstreamProject() {
+        NSWorkspace.shared.open(upstreamURL)
     }
 }

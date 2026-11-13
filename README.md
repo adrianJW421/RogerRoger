@@ -1,172 +1,78 @@
-> 扩展版本: Mac 当前光标自动跟随 + Android 搜狗麦克风客户端. 手机端见 [android/README.md](android/README.md).
+# RogerRoger
 
-<p align="center">
-  <img src="brand/vibecast-logo.svg" alt="VibeCast" width="360" />
-</p>
+手机上说话, 文字实时出现在 Mac 当前光标. 说完点「停止」, 再点「发送 (Enter)」.
 
-<h1 align="center">VibeCast</h1>
+RogerRoger 使用手机上已有的搜狗输入法小米版完成语音识别, Mac 只接收文字并写入当前输入框. 手机原生 App 只有大按钮和连接状态, 不展示转写草稿、键盘或搜狗语音面板.
 
-<p align="center">
-  把手机变成 macOS 的远程语音文本输入面板，专为 Vibe Coding 设计。
-</p>
+## 功能
 
-<p align="center">
-  <a href="#vibecast">中文</a> ·
-  <a href="docs/i18n/en/README.md">English</a> ·
-  <a href="docs/i18n/ja/README.md">日本語</a> ·
-  <a href="docs/i18n/ko/README.md">한국어</a> ·
-  <a href="docs/i18n/es/README.md">Español</a> ·
-  <a href="docs/i18n/hi/README.md">हिन्दी</a> ·
-  <a href="docs/i18n/ar/README.md">العربية</a>
-</p>
+- **跟随 Mac 光标**: 切换应用、输入框或光标后自动跟随, 不带入旧草稿, 不拉回旧应用.
+- **渐进写入**: 保留未变的文字前缀, 避免每次识别更新都全选整段文字.
+- **保留搜狗效果**: 直接使用手机已安装的搜狗输入法, 不在 Mac 上运行 ASR. 搜狗本身可能使用其云端识别.
+- **真实就绪提示**: 检测到录音就绪且 Mac 存在输入光标后, 显示绿色「可以说话」并轻震.
+- **句尾收尾**: 停止后短暂保留输入会话接收句尾, 界面会提示此时麦克风仍可能开启.
+- **手机按 Enter**: 停止后可以立即点发送, 等收尾和最终文字同步确认后再按一次 Enter. 换目标会取消排队发送, 结果未知不自动重试.
 
-VibeCast 把手机变成 Mac 上的高效输入面板：手机负责用你熟悉的系统输入法或微信输入法完成语音转文字，Mac 负责把文本实时镜像到 Codex、WorkBuddy、Notion、Obsidian、CodeBuddyCN、CodeBuddy 或任意自定义目标应用，并在最终文本同步完成后执行发送。
+## 使用
 
-它的体验很直接：拿起手机说话，在 Mac 上写入；在手机上修改，在 Mac 上同步；确认后发送，让 Vibe Coding 的输入节奏跟上你的思路。
+1. 在 Mac 启动菜单栏 App, 授予辅助功能权限.
+2. 手机与 Mac 使用可互通的局域网. 在手机 App「连接设置」粘贴 Mac 菜单里的完整配对链接.
+3. 在 Mac 点进要输入的文本框.
+4. 手机点「开始说话」, 等绿色提示后开口.
+5. 说完点停止; 可以马上点「发送 (Enter)」, App 会自动等待收尾与同步.
 
-## 界面截图
+发送按钮等同于目标输入框中的 Enter. 目标应用把 Enter 解释为发送还是换行, 遵循该应用本来的设置.
 
-| 手机端输入面板 | 目标 App 配置页 |
-|---|---|
-| <img src="marketing/x-launch/vibecast-mobile.png" alt="VibeCast 手机端输入面板" width="320" /> | <img src="marketing/x-launch/vibecast-config.png" alt="VibeCast 目标 App 配置页" width="520" /> |
+## 当前支持范围
 
-<p align="center">
-  <img src="marketing/x-launch/vibecast-notion-ai.png" alt="Notion AI 输入框中的 VibeCast 示例文字" width="760" />
-</p>
+原生客户端已在小米折叠屏、Android 17、搜狗输入法小米版 `10.32.21.202609081832` 上验证. 使用小米/搜狗专用语音入口, 不代表其他输入法或手机型号均受支持. 手机 App 需要保持前台.
 
-## 核心价值
+Mac 要求 macOS 13+ 与可编辑的辅助功能输入控件. 推荐使用「当前应用」路径; 上游固定应用卡片保留兼容, 不在本轮完整验收范围内.
 
-| 能力 | 体验 |
-|---|---|
-| 手机即输入面板 | 手机浏览器打开 Mac 提供的页面即可使用，也可以添加到主屏幕 |
-| 熟悉的语音输入 | 继续使用系统输入法、微信输入法或你喜欢的手机输入法 |
-| 多目标草稿 | Codex / WorkBuddy / Notion / Obsidian / CodeBuddyCN / CodeBuddy 与自定义 App 拥有独立草稿和同步状态 |
-| 实时文本镜像 | 手机文本通过 WebSocket 快照同步到 Mac 目标输入框 |
-| 发送前确认 | VibeCast 等待最终 revision 写入成功，再执行 Enter、快捷键或仅同步动作 |
-| 本地优先隐私 | 网页不请求麦克风权限，不传输音频，诊断日志不记录正文或令牌 |
-| 可配置目标 | 配置 Bundle ID、聚焦方式、写入方式、发送方式和安全写入护栏 |
-| 多语言体验 | 手机端、配置页、macOS 菜单和用户文档支持 7 种语言 |
+当前仓库提供源码与本地构建方式. 功能验收基于原名称下的 Android 0.1.2 / Mac local build 10.6; RogerRoger 更名版为 Android 0.1.3, Mac 打包建议使用 local build 10.7. 本次未发布安装 Release.
 
-## 输入模式
+## 构建
 
-VibeCast 支持两类同步语义，可以按目标 App 的输入区域选择：
+### macOS
 
-| 模式 | 适用场景 | 行为 |
-|---|---|---|
-| 对话框模式 | Codex、WorkBuddy、Notion AI、CodeBuddy 等单一输入框 | 手机草稿作为完整内容镜像到目标输入框，适合发送前反复修改整段提示词或消息 |
-| 编辑器模式 | Obsidian、Notion 普通文档块、富文本编辑器 | 首次在当前光标位置插入，本轮后续同步只替换 VibeCast 插入的这一段，不会清空整个编辑器 |
-
-Notion 默认保持对话框模式，适合 Notion AI。Obsidian 作为预置目标默认启用编辑器模式：先在 Mac 端把光标放到目标笔记位置，再用手机输入；点击“完成”后，Mac 端文本保留，手机端本轮输入清空。
-
-## 相比连续麦克风
-
-与 iPhone/Mac 连续麦克风功能相比，本项目解决了：
-
-1. 连续麦克风连接不稳定。
-2. iPhone 在连续麦克风状态下不能有其他操作。
-3. 不能快速切换 Mac 端的目标 App。
-4. 连续麦克风本质需先唤醒 Mac 端语音输入法，手不能离开键盘。
-5. 连续麦克风不支持 Android 机。
-
-## 快速上手指南
-
-1. 在 Mac 上启动 VibeCast，菜单栏出现 VibeCast 图标。
-2. 选择复制访问地址。
-3. 在同 WiFi 的手机浏览器中打开该地址。
-4. 在手机页面选择 Codex、Notion 或任意已配置目标。
-5. 用手机输入法或语音输入，文本实时出现在 Mac 端对应 App。
-6. 点击“发送”，VibeCast 确认最终文本已同步后执行目标应用发送动作。
-
-## 系统要求
-
-- macOS 13 Ventura 及以上
-- Xcode Command Line Tools，Swift 5.9+
-- Node.js 18+
-- 手机浏览器
-- Mac 和手机可互相访问的本地网络
-- macOS 辅助功能权限，用于激活应用、聚焦输入框、写入文本和发送
-
-## 本地构建
+需要 Node.js 18+、Swift 5.9+ 与 Xcode Command Line Tools 或 Xcode.
 
 ```bash
-# 构建手机端页面，产物进入 Mac App 资源目录
 cd web
-npm install
-npm run build
-
-# 打包 macOS 菜单栏 App
+npm ci
+npm test
+npm run typecheck
 cd ..
-bash scripts/build_app.sh
-
-# 启动
-open dist/VibeCast.app
+VERSION=0.4.0 BUILD_NUMBER=10.7 SWIFT_ARCHS=arm64 bash scripts/build_app.sh
 ```
 
-首次启动后：
+输出 `dist/RogerRoger.app` 与 `dist/RogerRoger-0.4.0-macos.zip`. Intel / 通用包可按工具链情况设置 `SWIFT_ARCHS`.
 
-1. 在 macOS 系统设置里授予 VibeCast 辅助功能权限。
-2. 菜单栏点击“打开配置页面…”，启用需要的目标或添加自定义 App。
-3. 为目标配置 Bundle ID、聚焦策略、写入方式和发送方式。
-4. 菜单栏点击“复制访问地址（含令牌）”，用手机浏览器打开。
+默认不配置 Sparkle 更新源, 自动更新关闭. 如需发布自动更新, 配置自己的 `APPCAST_URL` 与 `SPARKLE_PUBLIC_ED_KEY`, 不使用上游项目的签名或更新源.
 
-如果 npm 受到本机 preload 环境影响并报 `genie-safe-delete` 相关错误，使用 `NODE_OPTIONS=""` 清空该环境变量。
+### Android
 
-## 开发与测试
+需要 JDK 17、Android SDK Platform 36、Build Tools 36.0.0.
 
 ```bash
-# Web
-cd web
-NODE_OPTIONS="" npm test
-NODE_OPTIONS="" npm run typecheck
-NODE_OPTIONS="" npm run build
-
-# Mac
-cd mac
-swift test
-swift build
+cd android
+export VIBECAST_JAVA_HOME=/path/to/jdk17
+export VIBECAST_ANDROID_HOME=/path/to/android-sdk
+python3 fetch_deps.py
+python3 build.py
 ```
 
-## 项目结构
+输出 `android/dist/RogerRoger-Mic-0.1.3.apk`. 这是可调试的本地预览包, 构建工具会生成对应校验记录. 本地签名密钥保存在 Git 忽略的 `android/.local/`, 更新已安装包需要保留同一密钥. 详见 [Android 构建说明](android/README.md).
 
-```text
-VibeCast/
-├── mac/                    # Swift 菜单栏服务、HTTP/WS、Accessibility、配置、诊断
-├── web/                    # 手机端页面与配置页，TypeScript + Vite
-├── shared/protocol.md      # WebSocket 同步协议对齐来源
-├── docs/                   # 中文用户文档
-├── docs/i18n/              # English / 日本語 / 한국어 / Español / हिन्दी / العربية
-├── brand/                  # Logo、App Icon、菜单栏图标
-└── scripts/                # 构建脚本
-```
+## 开发文档
 
-## 文档
+- [同步协议](shared/protocol.md): 自动跟随、文本确认、显式 Enter.
+- [Android 客户端](android/README.md): 工具链、签名、运行限制.
 
-- [安装与使用](docs/INSTALL.md)
-- [目标应用配置](docs/CONFIGURATION.md)
-- [架构说明](docs/ARCHITECTURE.md)
-- [安全与隐私](docs/SECURITY.md)
-- [排障指南](docs/TROUBLESHOOTING.md)
-- [能力边界与最佳实践](docs/KNOWN_LIMITS.md)
-- [卸载](docs/UNINSTALL.md)
-- [同步协议](shared/protocol.md)
+`mac/`、`web/`、`android/` 分别为 Mac、网页和原生手机客户端. 部分内部包名、Bundle ID、数据目录和协议标识保留 VibeCast 名称, 以延续已有配对、配置与授权; 产品显示名和构建产物使用 RogerRoger. 其他历史 docs/marketing 文件保留上游记录, 当前行为以此 README 与代码为准.
 
-## 安全与隐私
+## 致谢与许可证
 
-VibeCast 专注文本流。语音识别发生在手机输入法内部，VibeCast 网页只接收输入法写入的文字：
+RogerRoger fork 自 [VibeCast](https://github.com/Pls-1q43/VibeCast), 基于 v0.4.0. 感谢 Jeffrey Wang 和原项目提供的基础实现. 原 MIT 版权声明保留在 [LICENSE](LICENSE), 第三方依赖见 [NOTICE](android/NOTICE.md).
 
-- 网页不请求麦克风权限。
-- VibeCast 不接收、传输或保存音频。
-- Mac 端不把用户文本发送给外部服务。
-- 文本同步通过 Mac 本机服务完成。
-- 配对令牌保护 WebSocket 连接。
-- 诊断日志只记录事件、目标、revision、文本长度和短哈希。
-
-完整说明见 [安全与隐私](docs/SECURITY.md)。
-
-## 致谢
-
-产品、设计、编码、营销：All by Codex。感谢 OpenAI。
-
-## License
-
-VibeCast is released under the [MIT License](LICENSE).
+搜狗应用、识别引擎、模型和专有代码不随本项目分发; 客户端只调用手机已经安装的输入法.

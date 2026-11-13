@@ -1064,7 +1064,7 @@ final class SessionManager: ServerDelegate {
             let outcome = FocusController.focus(targetId: msg.targetId, sessionId: testSessionId, profile: profile)
             switch outcome {
             case .focused(let binding):
-                let result = TextWriter.write("VibeCast 测试文本（不会发送）", to: binding, writeMode: profile.writeMode, allowSelectAllReplace: profile.allowSelectAllReplace)
+                let result = TextWriter.write("RogerRoger 测试文本（不会发送）", to: binding, writeMode: profile.writeMode, allowSelectAllReplace: profile.allowSelectAllReplace)
                 switch result {
                 case .applied(let method):
                     self.delegate?.sessionDidLog("test_target \(msg.targetId.rawValue) ok via=\(method)")

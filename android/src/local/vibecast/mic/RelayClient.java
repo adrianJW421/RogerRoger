@@ -47,7 +47,7 @@ final class RelayClient {
                     attempt = 0;
                     events.state("authenticating");
                     send(json("type", "hello", "protocolVersion", 1, "clientId", clientId,
-                            "deviceName", "VibeCast Android Mic", "pairingToken", token));
+                            "deviceName", "RogerRoger Android Mic", "pairingToken", token));
                 });
             }
             @Override public void onMessage(WebSocket ws, String text) {

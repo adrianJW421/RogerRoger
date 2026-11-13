@@ -1,6 +1,6 @@
 {
-  "name": "VibeCast",
-  "short_name": "VibeCast",
+  "name": "RogerRoger",
+  "short_name": "RogerRoger",
   "description": "Local voice-to-text bridge for Android and macOS.",
   "start_url": "./",
   "display": "standalone",

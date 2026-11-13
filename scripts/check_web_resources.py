@@ -7,11 +7,17 @@ import urllib.request
 from pathlib import Path
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--app', type=Path, default=Path('/Applications/VibeCast.app'))
+parser.add_argument('--app', type=Path, default=Path('/Applications/RogerRoger.app'))
 parser.add_argument('--phone-url', required=True)
 parser.add_argument('--config-url', default='http://127.0.0.1:8786/')
 args = parser.parse_args()
-ROOT = args.app / 'Contents/Resources/VibeCast_VibeCast.bundle/Contents/Resources/web'
+resources = args.app / 'Contents/Resources'
+candidates = [resources / 'VibeCast_VibeCast.bundle/Contents/Resources/web',
+              resources / 'VibeCast_VibeCast.bundle/web', resources / 'web']
+ROOT = next((path for path in candidates if (path / 'index.html').is_file()
+             and (path / 'config.html').is_file() and (path / 'assets').is_dir()), None)
+if ROOT is None:
+    raise SystemExit('Complete packaged web resources not found in ' + str(args.app))
 PHONE = args.phone_url.rstrip('/') + '/'
 CONFIG = args.config_url.rstrip('/') + '/'
 opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))

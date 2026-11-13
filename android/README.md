@@ -1,30 +1,32 @@
-# VibeCast Android 麦克风
+# RogerRoger Android 麦克风
 
-本地预览版, 用已安装的搜狗输入法小米版识别语音, 实时发送文字到 Mac 当前输入框. 界面不展示转写文本, 不需要手动清空或重新聚焦.
-
-点击「开始说话」启动搜狗; 使用 Android WindowInsetsAnimationController 保持输入法面板不可见. 点击停止后进入短暂收尾, 可立即点「发送 (Enter)」排队发送. 离开 App 或断开连接会立即请求停止并取消尚未发出的 Enter. 手机在语音开启期间保持亮屏. 不使用 Android 麦克风权限, 不传音频到 Mac; 搜狗本身可能继续使用它的云端识别服务.
-
-配套 Mac: VibeCast 0.4.0 本地 build 10.6, 支持 `follow_current` / `focus_context` / `currentAppEnterSupported`. 没有 Enter 能力标志时发送按钮禁用. 普通上游 v0.4.0 不支持本客户端所需的光标跟随协议.
+原生 Android 客户端, 使用手机已有的搜狗输入法小米版识别语音, 实时同步到 Mac 当前光标. 界面不展示转写文本或输入法面板. 大按钮完成「开始说话 → 停止 → 发送 (Enter)」.
 
 ## 构建
 
-依赖下载: `python3 fetch_deps.py`, 从 Maven Central 获取固定版本并验证官方校验值. 构建: `python3 build.py`, 先运行光标分段回归检查, 再编译并签名 APK. 需要 Java 17、Android SDK Platform 36 和 Build Tools 36.0.0. 使用 `VIBECAST_JAVA_HOME` / `VIBECAST_ANDROID_HOME` 指定路径; 本机也可在 Git 忽略的 `.local/toolchain.json` 配置 `javaHome` / `androidHome`. 两个 VIBECAST 环境变量优先于本机配置, 再回退到 `JAVA_HOME` 和 `ANDROID_HOME` / `ANDROID_SDK_ROOT`; 不再依赖项目原来的父目录位置.
+需要 Java 17、Android SDK Platform 36、Build Tools 36.0.0. 设置 `VIBECAST_JAVA_HOME` / `VIBECAST_ANDROID_HOME`, 或在 Git 忽略的 `.local/toolchain.json` 配置 `javaHome` / `androidHome`. 显式 VIBECAST 环境变量优先, 其次本机配置, 再回退到 JAVA_HOME 与 ANDROID_HOME / ANDROID_SDK_ROOT.
 
-产物: `dist/VibeCast-Mic-0.1.2.apk`. `.local/preview.keystore` 是仅用于本地预览更新的签名文件, 不应提交到仓库. 此版本启用 debuggable, 便于通过已授权 ADB 读取仅含计数和状态的诊断文件; 无转写内容日志.
+```bash
+python3 fetch_deps.py
+python3 build.py
+```
 
-连接: 在 App「连接设置」粘贴 Mac 菜单中的完整手机链接. 配对密钥保存在 App 私有存储, 不写入源代码或 APK. 开发部署也可将链接放入 App 私有 `files/pairing-url.txt`, 启动后导入并删除该文件.
+构建先运行 56 条纯 Java 逻辑断言, 再编译并签名. Maven 固定依赖及校验值在 dependencies.json. 输出 `dist/RogerRoger-Mic-0.1.3.apk`, 对应元数据在 `dist/build-info.json`.
 
-## 验证与限制
+`.local/preview.keystore` 是本地预览签名密钥, 不提交 Git; 更新现有安装必须使用同一密钥. 当前包 debuggable=true, 不代表已完成正式发行签名准备.
 
-- 真机已验证面板完全不可见时能收到搜狗实时识别结果; 0.1.0 原生客户端已收到 6 次 Mac 写入确认, 用户确认手机到 Mac 功能符合预期, 但启动时立即说话会漏掉开头.
-- 0.1.1 删除启动流程中固定的 300 + 250 毫秒等待, 在输入连接与输入法窗口准备完成后请求手机搜狗录音. 使用 Android 公开的录音状态回调观察新录音会话; 仅在录音就绪并有 Mac 输入光标后显示「可以说话」并轻震一次. 系统返回的录音配置经过匿名化, 无法据此直接读取应用名称, 所以以点击前的会话集合为基准排除已有录音; 收到真实识别文字也可作为就绪证据. 不以固定计时器假装录音已经开始. 真机确认录音回调有效: 点击至请求 42ms, 至录音确认 578ms; 已发出的 22 次文字更新均收到 Mac 确认, 用户反馈主要仍漏结尾, 停止后没有新的文字返回.
-- 0.1.2 改变停止顺序: 先保留同一隐藏搜狗输入会话至少 2 秒, 且文字静默 700ms 后才隐藏输入法, 最长 4.5 秒; 隐藏后继续接收 600 至 1600ms 晚到文字. 收尾期间麦克风仍可能录音, UI 明确提示. 这是有上限的等待策略, 搜狗没有公开最终识别回调, 不能等同于识别已完整结束. 2026-11-13 用户真机复测确认句尾已完整保留. 诊断只记录时延和计数, 不记录文字.
-- 切换 Mac 的应用、输入框或光标后建立新会话; 手机保留搜狗的输入缓冲, 仅发送切换后的新文字. 断线、无可编辑目标期间的文字不会在恢复后补发.
-- 独立「发送 (Enter)」按钮只由用户点击触发. 等待收尾与最终快照 ACK, 在原 Mac 输入会话按一次 Enter; 目标变化取消排队发送. 丢失发送结果不自动重试. Mac 在串行队列中检查版本、焦点、光标与重复请求. 成功只表示 Enter 按键已执行, 是否提交由目标应用决定. 不改变 Mac 前台应用, 继续使用增量写入路径.
-- 搜狗升级、折叠屏布局变化、系统撤销窗口控制可能中止语音, 届时显示暂停提示, 由用户再次点击启动. 搜狗自身的长静音停止策略仍由搜狗控制.
-- 输入法跨越两个 Mac 目标进行整句改写时, 无法精确按说话时间切分; 跨边界的歧义改写不会带入新输入框.
+## 连接与行为
 
-0.1.2 自动化验证: 18 条光标分段断言、9 条录音就绪断言、29 条收尾/发送队列断言通过; Mac 使用隔离 OS 适配器验证 Enter 单次按键、选区/焦点变化取消、精确版本和重复请求. 自动测试不在用户应用中提交消息.
+Mac 需要支持 follow_current / focus_context / currentAppEnterSupported, 原上游 v0.4.0 不具备这些扩展. 在「连接设置」粘贴 Mac 提供的完整手机链接. 链接保存于 App 私有存储, 不写入源码或 APK.
 
+- 只有 INTERNET 权限, 本 App 不采集或向 Mac 发送音频; 录音由已授权的手机搜狗完成, 搜狗可能使用云端识别.
+- 使用隐藏 EditText + WindowInsetsAnimationController + 小米搜狗语音广播. 当前验证环境为 Android 17 与搜狗小米版 10.32.21.202609081832.
+- 录音真实就绪后才显示绿色提示. 停止后保留输入会话 2–4.5 秒, 再接收 0.6–1.6 秒迟到文字; 界面明确提示收尾期间麦克风仍可能开启.
+- 点发送后等待收尾和最终文本 ACK, 在原 Mac 会话按一次 Enter; 目标变化取消排队, 结果未知不自动重试.
+- 需要保持 App 前台. 离开 App、断线或其他控制端接管时停止. 诊断只保存计数/时序/状态, 不记录转写或 token.
 
+本轮更名保留 Android package `local.vibecast.mic`, 现有预览签名与协议兼容. 显示名为「RogerRoger 麦克风」, 版本 0.1.3 / code 4.
 
+## 致谢
+
+本客户端的协议与分段算法基于 [VibeCast](https://github.com/Pls-1q43/VibeCast). 保留 [MIT LICENSE](LICENSE), 第三方依赖许可见 [NOTICE](NOTICE.md). 不包含搜狗 APK、模型或专有代码.

@@ -9,7 +9,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SessionManagerDelegate
     private var phoneServer: Server?
     private var configServer: Server?
     private var session: SessionManager!
-    private let updaterController = SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: nil, userDriverDelegate: nil)
+    private let updaterController = SPUStandardUpdaterController(startingUpdater: !(Bundle.main.object(forInfoDictionaryKey: "SUFeedURL") as? String ?? "").isEmpty, updaterDelegate: nil, userDriverDelegate: nil)
     private var aboutWindowController: AboutWindowController?
     private let networkSettings = NetworkSettingsStore()
 
@@ -268,7 +268,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SessionManagerDelegate
 
     private func updateStatusButton() {
         guard let button = statusItem.button else { return }
-        button.toolTip = pairedCount > 0 ? MacI18n.f("tooltipConnected", pairedCount) : "VibeCast"
+        button.toolTip = pairedCount > 0 ? MacI18n.f("tooltipConnected", pairedCount) : "RogerRoger"
         button.imagePosition = .imageOnly
 
         if let image = statusBarIcon() {
@@ -276,7 +276,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SessionManagerDelegate
             button.image = image
         } else {
             button.image = nil
-            button.title = pairedCount > 0 ? "VC●" : "VC"
+            button.title = pairedCount > 0 ? "RR●" : "RR"
         }
     }
 

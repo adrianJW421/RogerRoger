@@ -66,7 +66,7 @@ final class DiagnosticsLog {
         """
         let content = header + all + "\n"
         let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("VibeCast-diagnostics-\(Int(Date().timeIntervalSince1970)).txt")
+            .appendingPathComponent("RogerRoger-diagnostics-\(Int(Date().timeIntervalSince1970)).txt")
         do {
             try content.write(to: url, atomically: true, encoding: .utf8)
             return url

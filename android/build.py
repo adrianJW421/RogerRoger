@@ -66,10 +66,10 @@ run(bt / 'zipalign', '-f', '4', build / 'unsigned.apk', build / 'aligned.apk')
 key = local / 'preview.keystore'
 if not key.exists():
     run(jdk / 'keytool', '-genkeypair', '-keystore', key, '-storepass', 'android', '-keypass', 'android',
-        '-alias', 'preview', '-keyalg', 'RSA', '-keysize', '2048', '-validity', '3650', '-dname', 'CN=VibeCast Local Preview')
+        '-alias', 'preview', '-keyalg', 'RSA', '-keysize', '2048', '-validity', '3650', '-dname', 'CN=RogerRoger Local Preview')
     key.chmod(0o600)
 version = ET.parse(root / 'AndroidManifest.xml').getroot().get('{http://schemas.android.com/apk/res/android}versionName')
-apk = root / f'dist/VibeCast-Mic-{version}.apk'
+apk = root / f'dist/RogerRoger-Mic-{version}.apk'
 run(jdk / 'java', '-jar', bt / 'lib/apksigner.jar', 'sign', '--ks', key, '--ks-pass', 'pass:android', '--out', apk, build / 'aligned.apk')
 run(jdk / 'java', '-jar', bt / 'lib/apksigner.jar', 'verify', '--verbose', apk)
 print('Built:', apk, apk.stat().st_size, 'bytes')

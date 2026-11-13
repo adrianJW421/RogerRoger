@@ -171,7 +171,7 @@ enum TypelessVoiceBridge {
             }
             return TypelessVoiceStatus(installed: true, audioDevice: boundToDefault ? "系统默认麦克风" : deviceName, matchesVirtualMic: true,
                                        message: boundToDefault
-                                            ? "已将 Typeless 麦克风绑定到系统默认输入；VibeCast 语音时会临时切到 \(deviceName)\(reloadMessage)"
+                                            ? "已将 Typeless 麦克风绑定到系统默认输入；RogerRoger 语音时会临时切到 \(deviceName)\(reloadMessage)"
                                             : "已将 Typeless 麦克风绑定到 \(deviceName)\(reloadMessage)",
                                        originalAudioDevice: originalAudioDevice ?? config.audioDevice)
         } catch {
