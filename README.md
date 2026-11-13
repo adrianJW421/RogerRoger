@@ -29,7 +29,7 @@ RogerRoger 使用手机上已有的搜狗输入法小米版完成语音识别, M
 
 Mac 要求 macOS 13+ 与可编辑的辅助功能输入控件. 推荐使用「当前应用」路径; 上游固定应用卡片保留兼容, 不在本轮完整验收范围内.
 
-当前仓库提供源码与本地构建方式. 功能验收基于原名称下的 Android 0.1.2 / Mac local build 10.6; RogerRoger 更名版为 Android 0.1.3, Mac 打包建议使用 local build 10.7. 本次未发布安装 Release.
+Android 安装包见 [0.1.3 预览版 Release](https://github.com/adrianJW421/RogerRoger/releases/tag/android-v0.1.3), 最低 Android 12. Mac 接收端按下方说明构建. 已有 VibeCast 0.1.2 Android 安装可使用同一签名的 RogerRoger 0.1.3 覆盖更新.
 
 ## 构建
 
@@ -62,7 +62,7 @@ python3 fetch_deps.py
 python3 build.py
 ```
 
-输出 `android/dist/RogerRoger-Mic-0.1.3.apk`. 这是可调试的本地预览包, 构建工具会生成对应校验记录. 本地签名密钥保存在 Git 忽略的 `android/.local/`, 更新已安装包需要保留同一密钥. 详见 [Android 构建说明](android/README.md).
+输出 `android/dist/RogerRoger-Mic-0.1.3.apk`. 这是已关闭调试的预览包, 构建工具会生成仅保存在本地的校验记录. 本地签名密钥保存在 Git 忽略的 `android/.local/`, 更新已安装包需要保留同一密钥. 详见 [Android 构建说明](android/README.md).
 
 ## 开发文档
 

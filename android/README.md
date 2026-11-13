@@ -2,6 +2,10 @@
 
 原生 Android 客户端, 使用手机已有的搜狗输入法小米版识别语音, 实时同步到 Mac 当前光标. 界面不展示转写文本或输入法面板. 大按钮完成「开始说话 → 停止 → 发送 (Enter)」.
 
+## 安装
+
+从 [Android 0.1.3 Release](https://github.com/adrianJW421/RogerRoger/releases/tag/android-v0.1.3) 下载 `RogerRoger-Mic-0.1.3.apk`, 在手机上打开安装. 最低 Android 12; 语音入口适配小米设备与搜狗输入法小米版. 需要配合本仓库的 Mac 接收端使用.
+
 ## 构建
 
 需要 Java 17、Android SDK Platform 36、Build Tools 36.0.0. 设置 `VIBECAST_JAVA_HOME` / `VIBECAST_ANDROID_HOME`, 或在 Git 忽略的 `.local/toolchain.json` 配置 `javaHome` / `androidHome`. 显式 VIBECAST 环境变量优先, 其次本机配置, 再回退到 JAVA_HOME 与 ANDROID_HOME / ANDROID_SDK_ROOT.
@@ -13,7 +17,7 @@ python3 build.py
 
 构建先运行 56 条纯 Java 逻辑断言, 再编译并签名. Maven 固定依赖及校验值在 dependencies.json. 输出 `dist/RogerRoger-Mic-0.1.3.apk`, 对应元数据在 `dist/build-info.json`.
 
-`.local/preview.keystore` 是本地预览签名密钥, 不提交 Git; 更新现有安装必须使用同一密钥. 当前包 debuggable=true, 不代表已完成正式发行签名准备.
+`.local/preview.keystore` 是本地预览签名密钥, 不提交 Git; 更新现有安装必须使用同一密钥. 发布 APK 已关闭调试 (`debuggable=false`), 仍沿用原预览签名以支持覆盖更新. 签名密钥不会打包进 APK 或上传到 Release.
 
 ## 连接与行为
 
