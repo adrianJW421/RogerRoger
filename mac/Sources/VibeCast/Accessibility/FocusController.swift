@@ -7,6 +7,7 @@ import AppKit
 
 /// 一次成功聚焦后记录的目标绑定。
 struct TargetBinding {
+    let id = UUID()
     let targetId: TargetId
     let sessionId: String
     let pid: pid_t
@@ -25,20 +26,50 @@ enum FocusOutcome {
 
 enum FocusController {
 
+    /// Observe only the actual foreground input; no activation, shortcuts or
+    /// editable-descendant fallback. A fresh session separates dictation ranges.
+    static func currentInput(sessionId: String) -> TargetBinding? {
+        guard AccessibilityPermission.isGranted,
+              let app = NSWorkspace.shared.frontmostApplication,
+              let bundleId = app.bundleIdentifier,
+              let element = AXSupport.focusedElement(pid: app.processIdentifier, allowFallback: false),
+              AXSupport.isEditableText(element),
+              AXSupport.selectedTextRange(of: element) != nil else { return nil }
+        let binding = TargetBinding(targetId: .currentApp, sessionId: sessionId,
+                                    pid: app.processIdentifier, bundleId: bundleId,
+                                    element: element, role: AXSupport.role(of: element))
+        return validate(binding) ? binding : nil
+    }
+
     /// 激活并聚焦目标，返回绑定或失败原因。应在后台队列调用（含同步等待）。
-    static func focus(targetId: TargetId, sessionId: String, profile: TargetProfile) -> FocusOutcome {
+    static func focus(targetId: TargetId, sessionId: String, profile: TargetProfile,
+                      allowActivation: Bool = true) -> FocusOutcome {
         guard AccessibilityPermission.isGranted else { return .noPermission }
 
-        // 1) 激活应用
-        let act = AppActivator.activate(bundleId: profile.bundleId,
-                                        launchIfNotRunning: profile.launchIfNotRunning,
-                                        timeoutMs: profile.focusWaitMs * 4)
         let pid: pid_t
-        switch act {
-        case .activated(let p): pid = p
-        case .notRunning: return .appNotRunning
-        case .launchFailed(let m): return .appLaunchFailed(m)
-        case .timeout: return .notFocused("应用激活超时")
+        if targetId == .currentApp || !allowActivation {
+            // Current App follows the user's foreground choice; a queued focus
+            // request must never reactivate an app the user has already left.
+            guard let front = NSWorkspace.shared.frontmostApplication,
+                  front.bundleIdentifier == profile.bundleId else {
+                return .notFocused("当前应用已改变，请在手机上重新聚焦")
+            }
+            pid = front.processIdentifier
+        } else {
+            // Only an explicit target selection may activate a named app.
+            let act = AppActivator.activate(bundleId: profile.bundleId,
+                                            launchIfNotRunning: profile.launchIfNotRunning,
+                                            timeoutMs: profile.focusWaitMs * 4)
+            switch act {
+            case .activated(let p): pid = p
+            case .notRunning: return .appNotRunning
+            case .launchFailed(let m): return .appLaunchFailed(m)
+            case .timeout: return .notFocused("应用激活超时")
+            }
+        }
+
+        guard NSWorkspace.shared.frontmostApplication?.processIdentifier == pid else {
+            return .notFocused("前台应用已改变，请重新聚焦")
         }
 
         // 2) 执行聚焦策略
@@ -61,6 +92,9 @@ enum FocusController {
         // 解决"光标看着在输入框但首次查询 AXFocusedUIElement 为空"导致的偶发失败。
         var element: AXUIElement?
         for attempt in 0..<5 {
+            guard NSWorkspace.shared.frontmostApplication?.processIdentifier == pid else {
+                return .notFocused("前台应用已改变，请重新聚焦")
+            }
             if let el = AXSupport.focusedElement(pid: pid), AXSupport.isEditableText(el) {
                 element = el
                 break
@@ -77,18 +111,15 @@ enum FocusController {
         return .focused(binding)
     }
 
-    /// 校验绑定是否仍然有效：应用仍在前台 + 焦点元素未变。PRD 9.3。
-    /// - requireFrontmost: 是否要求目标当前在前台。clipboard_paste 写入会自行重新激活目标，
-    ///   且控制端常在另一设备/窗口，故此模式放宽前台要求，仅校验进程仍存活。
-    static func validate(_ binding: TargetBinding, requireFrontmost: Bool = true) -> Bool {
-        if requireFrontmost {
-            guard NSWorkspace.shared.frontmostApplication?.processIdentifier == binding.pid else {
-                return false
-            }
-            guard let current = AXSupport.focusedElement(pid: binding.pid) else { return false }
-            return CFEqual(current, binding.element)
+    /// Check the real foreground input. Never activate an app or choose an
+    /// arbitrary editable field while validating an existing binding.
+    static func validate(_ binding: TargetBinding) -> Bool {
+        guard NSWorkspace.shared.frontmostApplication?.processIdentifier == binding.pid else {
+            return false
         }
-        // 放宽模式：仅要求目标进程仍在运行（写入时会重新激活并在已聚焦输入框内粘贴）。
-        return NSRunningApplication(processIdentifier: binding.pid) != nil
+        guard let current = AXSupport.systemFocusedElement()
+                ?? AXSupport.focusedElement(pid: binding.pid, allowFallback: false),
+              CFEqual(current, binding.element) else { return false }
+        return NSWorkspace.shared.frontmostApplication?.processIdentifier == binding.pid
     }
 }

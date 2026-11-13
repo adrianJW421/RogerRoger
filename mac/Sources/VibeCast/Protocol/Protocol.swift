@@ -92,6 +92,23 @@ struct SelectTargetMessage: Codable, Sendable {
     let type: String
     let sessionId: String
     let targetId: TargetId
+    var userInitiated: Bool? = nil
+}
+
+/// Passive subscription: never launches or activates an application.
+struct FollowCurrentMessage: Codable, Sendable {
+    let type: String
+    let followId: String
+}
+
+struct FocusContextMessage: Codable, Sendable {
+    var type = "focus_context"
+    let followId: String
+    let sessionId: String
+    var targetId: TargetId = .currentApp
+    let focused: Bool
+    let displayName: String?
+    let message: String
 }
 
 struct TextSnapshotMessage: Codable, Sendable {
@@ -111,6 +128,8 @@ struct SendRequestMessage: Codable, Sendable {
     let sessionId: String
     let targetId: TargetId
     let revision: Int
+    /// Explicit phone button only; current-app dictation otherwise stays sync-only.
+    let pressEnter: Bool?
 }
 
 struct ClearMessage: Codable, Sendable {
@@ -265,6 +284,8 @@ struct HelloAckMessage: Codable, Sendable {
     let targets: [TargetInfo]
     let accessibilityGranted: Bool
     let voiceRelayEnabled: Bool
+    var followFocusSupported = true
+    var currentAppEnterSupported = true
 }
 
 struct TargetsMessage: Codable, Sendable {

@@ -8,7 +8,7 @@
 ## 0. 约定
 
 - `protocolVersion`: 当前为 `1`
-- `sessionId`: 由手机端生成的 UUID，标识一次「目标编辑会话」。切换目标 = 新会话。
+- `sessionId`: 标识一次「目标编辑会话」。固定目标由手机生成; 自动跟随模式由 Mac 在输入框或光标改变时生成, 旧会话的快照不得写入新位置。
 - `targetId`: 目标字符串 ID。动态目标 `current_app` 表示 Mac 当前前台应用；预置目标为 `codex` | `workbuddy` | `notion` | `obsidian` | `codebuddycn` | `codebuddy`；配置页也可创建 `custom_*` 自定义目标。合法字符为字母、数字、`.`、`_`、`-`，长度 2–64。
 - `syncMode`: `mirror` 表示完整草稿镜像；`editor` 表示只替换本轮由 VibeCast 插入的文本段，用于 Obsidian、Notion 普通文档块等复杂编辑器。
 - `revision`: 每个 targetId 独立维护的单调递增整数，从 `1` 开始。Mac 只应用比已应用版本更高的快照。
@@ -24,6 +24,26 @@
 ---
 
 ## 1. 握手
+
+本地版本 10.5 在 `hello_ack` 中返回 `followFocusSupported: true`。
+支持该能力的手机默认订阅 `current_app`, 重新连接时重新订阅, 不重放旧草稿。
+
+### 自动跟随当前光标
+
+手机发送 `{"type":"follow_current","followId":"subscription-uuid"}`。
+仅已配对的活动控制端可订阅。此消息永不启动、激活应用或发送聚焦快捷键。
+Mac 被动检查真实前台可编辑控件及选区, 输入框、应用或用户光标位置改变时返回:
+
+```json
+{"type":"focus_context","followId":"subscription-uuid","sessionId":"new-context-uuid","targetId":"current_app","focused":true,"displayName":"TextEdit","message":"自动跟随 Mac 光标，无需清空或重新聚焦"}
+```
+
+非输入控件时 `focused: false`, 恢复有效输入位置后自动发新会话。
+手机收到新会话时以当前输入法缓冲区为分界, 后续 `text_snapshot.text` 只包含新段。
+不得直接清空正在组合的 Android 输入框。旧段修正不重发; 跨分界的歧义修正保留已写入的新段,
+不把整段旧文带入新位置。切换瞬间尚未被识别引擎返回的内容无法按语音时间精确归属。
+旧订阅通知、旧会话确认和排队快照均丢弃。网络恢复后不重放断线期间草稿。
+选择固定目标会结束自动跟随, 原有显式 `select_target` 激活规则保持不变。
 
 ### → hello (手机 → Mac)
 ```json
@@ -80,8 +100,10 @@
 
 ### → select_target (手机 → Mac)
 ```json
-{ "type": "select_target", "sessionId": "session-uuid", "targetId": "codex" }
+{ "type": "select_target", "sessionId": "session-uuid", "targetId": "codex", "userInitiated": true }
 ```
+
+`userInitiated` defaults to false. Binding requires true, set only for explicit user selection/refocus; older pages remain paused until refreshed. The dynamic `current_app` target never activates an application.
 
 ### ← target_status (Mac → 手机)
 `status` 枚举：`focusing` | `focused` | `app_not_running` | `not_focused` | `no_permission` | `error`
@@ -140,6 +162,13 @@ Mac 规则：
 
 ## 4. 两阶段发送
 
+本地 build 10.6 的 hello_ack 增加 `currentAppEnterSupported: true`.
+用户点击独立发送按钮时, 客户端可发送 `{"type":"send","sessionId":"mac-context","targetId":"current_app","revision":23,"pressEnter":true}`.
+必须先结束语音收尾并等待最终快照的 applied ACK. 排队期间输入会话变化、断线、离开 App 取消尚未发出的请求; 结果未知不得自动重试.
+Mac 要求 revision 与已应用版本完全一致 (0 表示尚无手机快照), 在文本写入共用的串行队列中再次去重并检查前台输入框、会话、光标, 才按一次 Enter.
+省略 pressEnter 保持原目标配置; 当前应用普通完成仍 sync-only. success=true 仅确认按键动作, 是否提交消息由目标应用决定.
+
+
 ### → send (手机 → Mac)
 ```json
 { "type": "send", "sessionId": "session-uuid", "targetId": "codex", "revision": 23 }
@@ -189,7 +218,7 @@ Mac 规则（顺序）：
 { "type": "ping", "t": 1781760000000 }
 { "type": "pong", "t": 1781760000000 }
 ```
-- 重连后：手机重发 `hello` → `select_target`（恢复上次目标）→ 发送**当前最新完整快照**（不重放历史编辑事件）。
+- 重连后：手机仅重发 `hello` 并保留草稿，暂停同步。用户点击「重新聚焦」后才重新绑定并发送当前快照，避免自动抢走 Mac 焦点。
 
 ---
 

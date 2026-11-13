@@ -33,6 +33,7 @@ export class Card {
   private voicePointerId: number | null = null;
   private voiceActive = false;
   private voiceRelayEnabled = false;
+  private followingFocus = false;
   private readonly placeholderText: string;
 
   constructor(targetId: TargetId, displayName: string, iconDataUrl: string | null | undefined, private i18n: I18n, cb: CardCallbacks) {
@@ -111,6 +112,16 @@ export class Card {
     this.root.classList.toggle("card--selected", selected);
   }
 
+  setFollowingFocus(enabled: boolean): void {
+    this.followingFocus = enabled;
+    this.clearBtn.hidden = enabled;
+    this.sendBtn.hidden = enabled;
+    this.textarea.title = enabled ? "语音输入缓冲区, 换应用自动分段, 无需清空" : "";
+    this.textarea.style.maxHeight = enabled ? "96px" : "";
+    this.textarea.style.overflowY = enabled ? "auto" : "";
+    this.updateButtons();
+  }
+
   setText(text: string, selStart?: number, selEnd?: number): void {
     if (this.textarea.value !== text) this.textarea.value = text;
     this.syncTextareaHeight();
@@ -177,7 +188,7 @@ export class Card {
     this.clearBtn.disabled = locked || !hasText;
     // 重新聚焦：仅在失焦/失败相关状态下提供
     const showRefocus = ["target_lost", "app_not_running", "sync_failed", "send_failed"].includes(this.status);
-    this.refocusBtn.style.display = showRefocus ? "" : "none";
+    this.refocusBtn.style.display = showRefocus && !this.followingFocus ? "" : "none";
   }
 
   /** 文本变化后需重算按钮（空↔非空）。 */

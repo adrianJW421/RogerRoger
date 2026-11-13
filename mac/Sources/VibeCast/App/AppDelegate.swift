@@ -281,10 +281,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SessionManagerDelegate
     }
 
     private func statusBarIcon() -> NSImage? {
-        let urls = [
-            Bundle.main.url(forResource: "StatusBarIconTemplate", withExtension: "png"),
-            Bundle.module.url(forResource: "StatusBarIconTemplate", withExtension: "png")
-        ].compactMap { $0 }
+        var urls = [Bundle.main.url(forResource: "StatusBarIconTemplate", withExtension: "png")].compactMap { $0 }
+        if urls.isEmpty, Bundle.main.bundleURL.pathExtension != "app",
+           let developmentIcon = Bundle.module.url(forResource: "StatusBarIconTemplate", withExtension: "png") {
+            urls.append(developmentIcon)
+        }
 
         for url in urls {
             if let image = NSImage(contentsOf: url) {

@@ -5,6 +5,7 @@ import { type TargetId, type ServerMessage, type TargetInfo } from "./ws/protoco
 import { WSClient, type ConnectionState } from "./ws/client.ts";
 import { DraftStore, getClientId, uuid } from "./store/draftStore.ts";
 import { IMEController } from "./ime/imeController.ts";
+import { FollowSegment } from "./ime/followSegment.ts";
 import { Card } from "./ui/card.ts";
 import type { SyncStatus } from "./ui/status.ts";
 import { LANGUAGES, createI18n, setLang, type I18n, type Lang } from "./i18n.ts";
@@ -38,6 +39,10 @@ export class App {
   private pendingSends = new Map<TargetId, { sessionId: string; revision: number }>();
   private activeVoice: ActiveVoiceSession | null = null;
   private voiceRelayEnabled = false;
+  private followFocusSupported = false;
+  private followId: string | null = null;
+  private followSegment = new FollowSegment();
+  private lastFollowText = "";
 
   private connbar!: HTMLElement;
   private cardList!: HTMLElement;
@@ -257,7 +262,12 @@ export class App {
   // ---- 目标选择（PRD 4.3）----
 
   private selectTarget(targetId: TargetId): void {
+    if (targetId === "current_app" && this.followFocusSupported) {
+      if (this.activeTarget !== targetId || !this.followId) this.startFollowingFocus();
+      return;
+    }
     if (this.activeTarget === targetId && this.sessions.has(targetId)) return;
+    this.followId = null;
     this.activeTarget = targetId;
     for (const [id, card] of this.cards) card.setSelected(id === targetId);
 
@@ -270,16 +280,36 @@ export class App {
     card.setStatus(this.connState === "connected" ? "focusing" : "disconnected");
 
     if (this.connState === "connected") {
-      this.ws.send({ type: "select_target", sessionId, targetId });
+      this.ws.send({ type: "select_target", sessionId, targetId, userInitiated: true });
     }
   }
 
   private refocus(targetId: TargetId): void {
+    if (targetId === "current_app" && this.followFocusSupported) {
+      this.startFollowingFocus();
+      return;
+    }
     const sessionId = this.sessions.get(targetId);
     if (sessionId && this.connState === "connected") {
       this.cards.get(targetId)?.setStatus("focusing");
-      this.ws.send({ type: "select_target", sessionId, targetId });
+      this.ws.send({ type: "select_target", sessionId, targetId, userInitiated: true });
     }
+  }
+
+  private startFollowingFocus(): void {
+    const targetId = "current_app";
+    if (this.connState !== "connected" || !this.cards.has(targetId)) return;
+    this.activeTarget = targetId;
+    this.followId = uuid();
+    this.sessions.delete(targetId);
+    this.targetFocused.set(targetId, false);
+    this.pendingSends.delete(targetId);
+    this.followSegment.cut(this.cards.get(targetId)!.text);
+    this.lastFollowText = "";
+    for (const [id, card] of this.cards) card.setSelected(id === targetId);
+    this.cards.get(targetId)?.setStatus("focusing", "自动跟随 Mac 光标");
+    this.ws.send({ type: "follow_current", followId: this.followId });
+    this.updateConnbar();
   }
 
   // ---- 输入与同步（PRD 6）----
@@ -298,20 +328,31 @@ export class App {
     const d = this.store.update(targetId, snap.text, snap.selectionStart, snap.selectionEnd);
     card.refreshButtons();
 
-    if (this.connState !== "connected" || this.activeTarget !== targetId) {
+    let text = snap.text;
+    if (targetId === "current_app" && this.followId) {
+      text = this.followSegment.update(snap.text);
+      if (!this.targetFocused.get(targetId)) {
+        this.followSegment.cut(snap.text);
+        return;
+      }
+      if (text === this.lastFollowText) return;
+    }
+
+    if (this.connState !== "connected" || this.activeTarget !== targetId || !this.targetFocused.get(targetId)) {
       // 断线或非活动目标：保留草稿，不上报，不显示已同步（PRD 16.4）。
       return;
     }
     const sessionId = this.sessions.get(targetId)!;
+    if (targetId === "current_app" && this.followId) this.lastFollowText = text;
     if (!snap.isComposing) card.setStatus("syncing");
     this.ws.send({
       type: "text_snapshot",
       sessionId,
       targetId,
       revision: d.revision,
-      text: snap.text,
-      selectionStart: snap.selectionStart,
-      selectionEnd: snap.selectionEnd,
+      text,
+      selectionStart: Math.min(snap.selectionStart, text.length),
+      selectionEnd: Math.min(snap.selectionEnd, text.length),
       isComposing: snap.isComposing,
       clientTimestamp: Date.now(),
     });
@@ -320,6 +361,12 @@ export class App {
   // ---- 发送（PRD 3.3 / 5.6 / 11.4）----
 
   private onSend(targetId: TargetId): void {
+    if (targetId === "current_app" && this.followId) {
+      // Finish without deleting Mac text or disturbing Android composition.
+      this.imeControllers.get(targetId)?.flushNow();
+      this.startFollowingFocus();
+      return;
+    }
     const card = this.cards.get(targetId);
     if (!card || this.connState !== "connected") return;
     const ime = this.imeControllers.get(targetId);
@@ -346,6 +393,7 @@ export class App {
   }
 
   private onClear(targetId: TargetId): void {
+    if (targetId === "current_app" && this.followId) return;
     const card = this.cards.get(targetId);
     if (!card) return;
     if (!window.confirm(this.i18n.t("app.clearConfirm"))) return;
@@ -477,7 +525,10 @@ export class App {
     this.connState = state;
     this.updateConnbar();
     if (state === "disconnected") {
+      this.followId = null;
       this.stopVoice("disconnect");
+      this.pendingSends.clear();
+      for (const id of this.targetFocused.keys()) this.targetFocused.set(id, false);
       // 断线：所有卡片标记未连接/等待重连，禁用发送（PRD 16.4）。
       for (const card of this.cards.values()) card.setStatus("reconnecting");
     }
@@ -488,14 +539,39 @@ export class App {
       case "hello_ack": {
         this.serverName = msg.serverName;
         this.voiceRelayEnabled = msg.voiceRelayEnabled;
+        this.followFocusSupported = msg.followFocusSupported === true;
         this.reconcileTargets(msg.targets);
+        this.cards.get("current_app")?.setFollowingFocus(this.followFocusSupported);
+        if (this.followFocusSupported && !this.voiceRelayEnabled) {
+          const hint = this.mount.querySelector(".hint");
+          if (hint) hint.textContent = "用手机键盘的语音输入说话. Mac 光标自动跟随, 换输入位置无需清空、无需重新聚焦.";
+        }
         this.updateConnbar();
-        // 重连后恢复活动目标 + 发送最新完整快照（PRD 16.4）。
+        if (this.followFocusSupported && (!this.activeTarget || this.activeTarget === "current_app")) {
+          this.startFollowingFocus();
+          break;
+        }
+        // Reconnection must not activate the previous app or replay a draft.
+        // The user explicitly resumes with the Refocus button.
         if (this.activeTarget) {
-          this.refocus(this.activeTarget);
+          this.targetFocused.set(this.activeTarget, false);
+          this.cards.get(this.activeTarget)?.setStatus("target_lost", this.i18n.t("card.refocus"));
         } else {
           for (const card of this.cards.values()) card.setStatus("idle");
         }
+        break;
+      }
+      case "focus_context": {
+        if (!this.followId || msg.followId !== this.followId || this.activeTarget !== "current_app") break;
+        const card = this.cards.get("current_app");
+        if (!card) break;
+        this.sessions.set("current_app", msg.sessionId);
+        this.targetFocused.set("current_app", msg.focused);
+        this.pendingSends.delete("current_app");
+        // Read the live IME buffer, including text not yet flushed by its timer.
+        this.followSegment.cut(card.text);
+        this.lastFollowText = "";
+        card.setStatus(msg.focused ? "focused" : "target_lost", msg.message);
         break;
       }
       case "targets": {
@@ -503,11 +579,13 @@ export class App {
         break;
       }
       case "target_status": {
+        if (msg.sessionId !== this.sessions.get(msg.targetId)) break;
         const card = this.cards.get(msg.targetId);
         if (!card) break;
         const focused = msg.status === "focused";
         this.targetFocused.set(msg.targetId, focused);
-        card.setStatus(this.mapTargetStatus(msg.status));
+        if (!focused) this.pendingSends.delete(msg.targetId);
+        card.setStatus(this.mapTargetStatus(msg.status), msg.message);
         if (focused && this.activeTarget === msg.targetId && this.activeVoice?.targetId !== msg.targetId) {
           // 聚焦成功后补发当前完整快照。
           this.imeControllers.get(msg.targetId)?.flushNow();
@@ -537,11 +615,12 @@ export class App {
         break;
       }
       case "text_ack": {
+        if (msg.sessionId !== this.sessions.get(msg.targetId)) break;
         const card = this.cards.get(msg.targetId);
         if (!card) break;
         if (msg.applied) {
           this.store.markAcked(msg.targetId, msg.revision);
-          if (this.store.isSynced(msg.targetId)) card.setStatus("synced");
+          if (this.store.isSynced(msg.targetId) && this.targetFocused.get(msg.targetId)) card.setStatus("synced");
           const pending = this.pendingSends.get(msg.targetId);
           if (pending && msg.revision >= pending.revision) {
             this.pendingSends.delete(msg.targetId);
@@ -555,11 +634,18 @@ export class App {
           }
         } else if (msg.errorCode && msg.errorCode !== "STALE_REVISION") {
           this.pendingSends.delete(msg.targetId);
-          card.setStatus("sync_failed", this.i18n.error(msg.errorCode, msg.message));
+          if (msg.errorCode === "TARGET_NOT_FOCUSED") {
+            this.targetFocused.set(msg.targetId, false);
+            card.setStatus("target_lost", msg.targetId === "current_app" && this.followId
+              ? "等待 Mac 输入光标，恢复后自动继续" : msg.message ?? this.i18n.t("card.refocus"));
+          } else {
+            card.setStatus("sync_failed", this.i18n.error(msg.errorCode, msg.message));
+          }
         }
         break;
       }
       case "send_result": {
+        if (msg.sessionId !== this.sessions.get(msg.targetId)) break;
         const card = this.cards.get(msg.targetId);
         if (!card) break;
         if (msg.success) {

@@ -8,7 +8,7 @@ enum AXSupport {
     /// 取某进程当前聚焦的 UI 元素。
     /// Electron 应用（如 Notion/VS Code）默认不暴露完整 AX 树，需先打开 AXManualAccessibility；
     /// 且其 AXFocusedUIElement 常为空，此时从聚焦窗口向下查找可编辑元素兜底。
-    static func focusedElement(pid: pid_t) -> AXUIElement? {
+    static func focusedElement(pid: pid_t, allowFallback: Bool = true) -> AXUIElement? {
         let appEl = AXUIElementCreateApplication(pid)
 
         // Electron/Chromium：开启手动 accessibility（幂等，原生应用忽略）。
@@ -20,6 +20,8 @@ enum AXSupport {
            let v = value {
             return (v as! AXUIElement)
         }
+
+        guard allowFallback else { return nil }
 
         // 2) 兜底：从聚焦窗口子树里找第一个可编辑文本控件。
         var winRef: CFTypeRef?
@@ -114,9 +116,15 @@ enum AXSupport {
 
     /// 设置选区（写入后把光标放到末尾，避免后续操作位置异常）。
     static func setSelectionToEnd(_ element: AXUIElement, length: Int) {
-        let range = CFRangeMake(length, 0)
-        if let axValue = AXValueCreate(.cfRange, withUnsafePointer(to: range, { $0 })) {
-            AXUIElementSetAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, axValue)
+        _ = setSelectedTextRange(element, range: CFRangeMake(length, 0))
+    }
+
+    /// AXValueCreate copies the range while its pointer is valid. Returning the
+    /// pointer from withUnsafePointer makes release builds read expired storage.
+    static func textRangeValue(_ range: CFRange) -> AXValue? {
+        guard range.location >= 0, range.length >= 0 else { return nil }
+        return withUnsafePointer(to: range) { pointer in
+            AXValueCreate(.cfRange, pointer)
         }
     }
 
@@ -124,7 +132,7 @@ enum AXSupport {
     static func selectedTextRange(of element: AXUIElement) -> CFRange? {
         var value: CFTypeRef?
         guard AXUIElementCopyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &value) == .success,
-              let axValue = value else {
+              let axValue = value, CFGetTypeID(axValue) == AXValueGetTypeID() else {
             return nil
         }
         var range = CFRange()
@@ -135,10 +143,23 @@ enum AXSupport {
     /// 设置当前文本选区。用于 editor 模式只替换本轮插入段，禁止退回整页全选。
     @discardableResult
     static func setSelectedTextRange(_ element: AXUIElement, range: CFRange) -> Bool {
-        guard let axValue = AXValueCreate(.cfRange, withUnsafePointer(to: range, { $0 })) else {
+        guard let axValue = textRangeValue(range) else {
             return false
         }
-        return AXUIElementSetAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, axValue) == .success
+        guard AXUIElementSetAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, axValue) == .success else {
+            return false
+        }
+        // A successful AX call does not guarantee the control used the range.
+        // Never paste a full snapshot until the previous insertion is selected.
+        let deadline = Date().addingTimeInterval(0.25)
+        repeat {
+            if let actual = selectedTextRange(of: element),
+               actual.location == range.location, actual.length == range.length {
+                return true
+            }
+            Thread.sleep(forTimeInterval: 0.01)
+        } while Date() < deadline
+        return false
     }
 
     /// 在某进程窗口树中查找标题包含给定文本的按钮并按下（AXPress）。

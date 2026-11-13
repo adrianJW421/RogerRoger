@@ -45,6 +45,23 @@ export interface SelectTargetMessage {
   type: "select_target";
   sessionId: string;
   targetId: TargetId;
+  /** Only explicit user selection/refocus may activate a named Mac app. */
+  userInitiated?: boolean;
+}
+
+export interface FollowCurrentMessage {
+  type: "follow_current";
+  followId: string;
+}
+
+export interface FocusContextMessage {
+  type: "focus_context";
+  followId: string;
+  sessionId: string;
+  targetId: "current_app";
+  focused: boolean;
+  displayName: string | null;
+  message: string;
 }
 
 export interface TextSnapshotMessage {
@@ -64,6 +81,8 @@ export interface SendMessage {
   sessionId: string;
   targetId: TargetId;
   revision: number;
+  /** Explicit Enter button, current_app only; ordinary completion remains sync-only. */
+  pressEnter?: boolean;
 }
 
 export interface ClearMessage {
@@ -132,6 +151,7 @@ export interface PingMessage {
 export type ClientMessage =
   | HelloMessage
   | SelectTargetMessage
+  | FollowCurrentMessage
   | TextSnapshotMessage
   | SendMessage
   | ClearMessage
@@ -177,6 +197,8 @@ export interface HelloAckMessage {
   targets: TargetInfo[];
   accessibilityGranted: boolean;
   voiceRelayEnabled: boolean;
+  followFocusSupported?: boolean;
+  currentAppEnterSupported?: boolean;
 }
 
 export interface TargetsMessage {
@@ -428,6 +450,7 @@ export interface VoiceSettingsMessage {
 
 export type ServerMessage =
   | HelloAckMessage
+  | FocusContextMessage
   | TargetsMessage
   | TargetStatusMessage
   | TextAckMessage

@@ -5,19 +5,37 @@ import Foundation
 struct StaticFileServer {
     let webRoot: URL
 
-    init?() {
-        let candidates = [
-            Bundle.main.resourceURL?
-                .appendingPathComponent("VibeCast_VibeCast.bundle", isDirectory: true)
-                .appendingPathComponent("web", isDirectory: true),
-            Bundle.main.resourceURL?.appendingPathComponent("web", isDirectory: true),
-            Bundle.module.url(forResource: "web", withExtension: nil)
-        ].compactMap { $0 }
-
-        guard let root = candidates.first(where: { FileManager.default.fileExists(atPath: $0.path) }) else {
-            return nil
+    init?(appBundle: Bundle = .main,
+          developmentWebRoot: () -> URL? = { Bundle.module.url(forResource: "web", withExtension: nil) }) {
+        if let resources = appBundle.resourceURL {
+            let nestedURL = resources.appendingPathComponent("VibeCast_VibeCast.bundle", isDirectory: true)
+            let candidates = [
+                // A macOS resource bundle stores files in Contents/Resources.
+                Bundle(url: nestedURL)?.url(forResource: "web", withExtension: nil),
+                nestedURL.appendingPathComponent("web", isDirectory: true),
+                resources.appendingPathComponent("web", isDirectory: true)
+            ].compactMap { $0 }
+            if let root = candidates.first(where: Self.isCompleteWebRoot) {
+                self.webRoot = root
+                return
+            }
         }
+
+        // SwiftPM's generated Bundle.module accessor embeds the temporary build
+        // path and may fatalError. An installed app must never depend on it.
+        guard appBundle.bundleURL.pathExtension != "app",
+              let root = developmentWebRoot(), Self.isCompleteWebRoot(root) else { return nil }
         self.webRoot = root
+    }
+
+    private static func isCompleteWebRoot(_ root: URL) -> Bool {
+        let manager = FileManager.default
+        guard manager.isReadableFile(atPath: root.appendingPathComponent("index.html").path),
+              manager.isReadableFile(atPath: root.appendingPathComponent("config.html").path),
+              let assets = try? manager.contentsOfDirectory(atPath: root.appendingPathComponent("assets").path) else {
+            return false
+        }
+        return assets.contains(where: { $0.hasSuffix(".js") }) && assets.contains(where: { $0.hasSuffix(".css") })
     }
 
     init(webRoot: URL) {

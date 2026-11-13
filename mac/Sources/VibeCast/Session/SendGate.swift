@@ -16,10 +16,13 @@ struct SendGate {
 
     /// 决定一次 send 请求如何处理。
     /// - appliedRevision: 该目标当前已应用的最高 revision。
-    func decide(sessionId: String, targetId: TargetId, revision: Int, appliedRevision: Int) -> Decision {
+    func decide(sessionId: String, targetId: TargetId, revision: Int, appliedRevision: Int,
+                requireExactRevision: Bool = false) -> Decision {
         let k = SendGate.key(sessionId: sessionId, targetId: targetId, revision: revision)
         if committed.contains(k) { return .duplicate }
-        if revision > appliedRevision { return .staleRevision }
+        if revision < 0 || revision > appliedRevision || (requireExactRevision && revision != appliedRevision) {
+            return .staleRevision
+        }
         return .proceed
     }
 

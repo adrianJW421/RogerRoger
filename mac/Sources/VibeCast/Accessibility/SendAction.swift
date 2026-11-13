@@ -13,17 +13,23 @@ enum SendActionResult {
 enum SendAction {
 
     /// 在已校验有效的绑定目标上执行发送。调用方必须先确保最终文本已写入且绑定有效。
-    static func perform(profile: TargetProfile, binding: TargetBinding) -> SendActionResult {
+    static func perform(profile: TargetProfile, binding: TargetBinding,
+                        expectedSelection: CFRange? = nil) -> SendActionResult {
         switch profile.sendMode {
         case .noneSyncOnly:
             // Notion 当前文本块等：仅同步，不发送（PRD 14.2）。
             return .skipped("该目标配置为仅同步，不执行发送")
 
         case .key, .customShortcut:
-            // 合成按键发给前台应用；控制端常不在目标前台，发送前需重新激活目标，
-            // 否则回车会发给错误的应用（危险）。
-            guard ensureFrontmost(pid: binding.pid) else {
-                return .failed("无法将目标置于前台（发送需要）")
+            guard FocusController.validate(binding) else {
+                return .failed("目标输入框已失焦，已取消发送")
+            }
+            if let expectedSelection {
+                guard let selection = AXSupport.selectedTextRange(of: binding.element),
+                      selection.location == expectedSelection.location,
+                      selection.length == expectedSelection.length else {
+                    return .failed("输入光标已移动，已取消发送")
+                }
             }
             let shortcut = profile.sendShortcut ?? .enter
             guard KeyboardSynth.press(shortcut) else {
@@ -32,6 +38,9 @@ enum SendAction {
             return .sent
 
         case .accessibilityButton:
+            guard FocusController.validate(binding) else {
+                return .failed("目标输入框已失焦，已取消发送")
+            }
             guard let title = profile.sendButtonTitleContains, !title.isEmpty else {
                 return .failed("未配置发送按钮标题")
             }
@@ -43,15 +52,4 @@ enum SendAction {
         }
     }
 
-    /// 把目标进程激活到前台并等待生效。
-    private static func ensureFrontmost(pid: pid_t) -> Bool {
-        if NSWorkspace.shared.frontmostApplication?.processIdentifier == pid { return true }
-        guard let app = NSRunningApplication(processIdentifier: pid) else { return false }
-        app.activate(options: [])
-        var waited = 0.0
-        while NSWorkspace.shared.frontmostApplication?.processIdentifier != pid && waited < 0.6 {
-            Thread.sleep(forTimeInterval: 0.03); waited += 0.03
-        }
-        return NSWorkspace.shared.frontmostApplication?.processIdentifier == pid
-    }
 }

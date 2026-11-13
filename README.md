@@ -1,3 +1,5 @@
+> 扩展版本: Mac 当前光标自动跟随 + Android 搜狗麦克风客户端. 手机端见 [android/README.md](android/README.md).
+
 <p align="center">
   <img src="brand/vibecast-logo.svg" alt="VibeCast" width="360" />
 </p>

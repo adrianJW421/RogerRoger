@@ -49,6 +49,9 @@ enum TextWriter {
     /// - allowSelectAllReplace: auto 模式下 AXValue 失败时是否允许 Cmd+A 全选替换。
     static func write(_ text: String, to binding: TargetBinding,
                       writeMode: WriteMode = .auto, allowSelectAllReplace: Bool = true) -> WriteResult {
+        guard FocusController.validate(binding) else {
+            return .failed("目标输入框已失焦，同步已暂停，请重新聚焦")
+        }
         switch writeMode {
         case .clipboardReplace, .clipboardPaste:
             guard allowSelectAllReplace else {
@@ -96,8 +99,8 @@ enum TextWriter {
     static func writeEditor(_ text: String, to binding: TargetBinding,
                             replacing state: EditorInsertionState?,
                             allowUndoPasteFallback: Bool = false) -> EditorWriteResult {
-        guard activateBindingApp(binding) else {
-            return .failed("无法将目标置于前台（编辑器粘贴需要）")
+        guard FocusController.validate(binding) else {
+            return .failed("目标输入框已失焦，同步已暂停，请重新聚焦")
         }
         guard !(text.isEmpty && state == nil) else {
             return .applied(method: "editor_clear_noop", state: nil)
@@ -106,9 +109,25 @@ enum TextWriter {
             return writeEditorViaUndoPaste(text, to: binding, replacing: state)
         }
 
+        if let state, state.text == text {
+            return .applied(method: "editor_unchanged", state: state)
+        }
+
         let range: CFRange
+        let insertionLocation: Int
+        let replacement: String
         if let state {
-            range = CFRangeMake(state.location, state.length)
+            // Keep the unchanged prefix in place. In the common append-only
+            // case this is a zero-length caret, so no selection flashes.
+            let prefix = String(zip(state.text, text).prefix {
+                // Swift Character equality normalizes Unicode, while AX ranges
+                // count the original UTF-16 units. Preserve only exact units.
+                String($0.0).utf16.elementsEqual(String($0.1).utf16)
+            }.map { $0.0 })
+            let prefixLength = utf16Length(prefix)
+            insertionLocation = state.location
+            range = CFRangeMake(state.location + prefixLength, state.length - prefixLength)
+            replacement = String(text.dropFirst(prefix.count))
         } else {
             guard let current = AXSupport.selectedTextRange(of: binding.element) else {
                 if allowUndoPasteFallback {
@@ -117,6 +136,8 @@ enum TextWriter {
                 return .failed("编辑器模式无法读取当前选区，已拒绝写入以保护文档")
             }
             range = current
+            insertionLocation = current.location
+            replacement = text
         }
 
         guard AXSupport.setSelectedTextRange(binding.element, range: range) else {
@@ -127,20 +148,25 @@ enum TextWriter {
         }
         Thread.sleep(forTimeInterval: 0.04)
 
-        if text.isEmpty {
+        guard FocusController.validate(binding), selectionMatches(binding.element, range: range) else {
+            return .failed("目标输入框已失焦，同步已暂停，请重新聚焦")
+        }
+
+        if replacement.isEmpty {
             if range.length > 0 {
                 guard KeyboardSynth.press(KeyShortcut(modifiers: [], key: "delete")) else {
                     return .failed("无法删除本轮编辑器输入")
                 }
                 Thread.sleep(forTimeInterval: 0.06)
             }
-            return .applied(method: "editor_clear", state: nil)
+            return .applied(method: "editor_trim", state: text.isEmpty ? nil :
+                EditorInsertionState(location: insertionLocation, length: utf16Length(text), text: text))
         }
 
         let method = state == nil ? "editor_insert" : "editor_replace"
-        switch pasteText(text, to: binding, method: method) {
+        switch pasteText(replacement, to: binding, method: method, expectedRange: range) {
         case .applied(let appliedMethod):
-            let next = EditorInsertionState(location: range.location,
+            let next = EditorInsertionState(location: insertionLocation,
                                             length: utf16Length(text),
                                             text: text)
             return .applied(method: appliedMethod, state: next)
@@ -159,6 +185,9 @@ enum TextWriter {
         }
 
         if state != nil {
+            guard FocusController.validate(binding) else {
+                return .failed("目标输入框已失焦，已取消撤销")
+            }
             guard KeyboardSynth.press(KeyShortcut(modifiers: ["command"], key: "z")) else {
                 return .failed("无法撤销上一轮编辑器输入")
             }
@@ -185,8 +214,8 @@ enum TextWriter {
     // MARK: - 剪贴板降级（PRD 10.2）
 
     private static func writeViaClipboardReplacing(_ text: String, to binding: TargetBinding) -> WriteResult {
-        guard activateBindingApp(binding) else {
-            return .failed("无法将目标置于前台（粘贴需要）")
+        guard FocusController.validate(binding) else {
+            return .failed("目标输入框已失焦，同步已暂停，请重新聚焦")
         }
 
         // 全选输入框内容（仅在配置显式允许时使用）。
@@ -194,6 +223,10 @@ enum TextWriter {
             return .failed("无法发送全选")
         }
         Thread.sleep(forTimeInterval: 0.04)
+
+        guard FocusController.validate(binding) else {
+            return .failed("目标输入框已失焦，同步已暂停，请重新聚焦")
+        }
 
         if text.isEmpty {
             // 清空：全选后按删除键。粘贴空串在 contenteditable 中不会删除选中内容。
@@ -208,8 +241,8 @@ enum TextWriter {
     }
 
     private static func writeViaClipboardInsert(_ text: String, to binding: TargetBinding) -> WriteResult {
-        guard activateBindingApp(binding) else {
-            return .failed("无法将目标置于前台（粘贴需要）")
+        guard FocusController.validate(binding) else {
+            return .failed("目标输入框已失焦，同步已暂停，请重新聚焦")
         }
         guard !text.isEmpty else {
             return .applied(method: "clipboard_insert_noop")
@@ -217,27 +250,17 @@ enum TextWriter {
         return pasteText(text, to: binding, method: "clipboard_insert_unverified")
     }
 
-    private static func activateBindingApp(_ binding: TargetBinding) -> Bool {
-        // 合成键盘事件会发给"当前前台应用"。手机操作时目标常已不在前台，
-        // 因此粘贴前必须把目标重新激活到前台（我们持有其 pid，激活是安全的）。
-        if NSWorkspace.shared.frontmostApplication?.processIdentifier != binding.pid {
-            if let app = NSRunningApplication(processIdentifier: binding.pid) {
-                app.activate(options: [])
-                // 等待前台切换生效。
-                var waited = 0.0
-                while NSWorkspace.shared.frontmostApplication?.processIdentifier != binding.pid && waited < 0.6 {
-                    Thread.sleep(forTimeInterval: 0.03); waited += 0.03
-                }
-            }
-        }
-        if NSWorkspace.shared.frontmostApplication?.processIdentifier != binding.pid {
-            DiagnosticsLog.shared.log("clipboard write: 无法把目标激活到前台 pid=\(binding.pid)")
-            return false
-        }
-        return true
+    private static func selectionMatches(_ element: AXUIElement, range: CFRange?) -> Bool {
+        guard let range else { return true }
+        guard let current = AXSupport.selectedTextRange(of: element) else { return false }
+        return current.location == range.location && current.length == range.length
     }
 
-    private static func pasteText(_ text: String, to binding: TargetBinding, method: String) -> WriteResult {
+    private static func pasteText(_ text: String, to binding: TargetBinding, method: String,
+                                  expectedRange: CFRange? = nil) -> WriteResult {
+        guard FocusController.validate(binding), selectionMatches(binding.element, range: expectedRange) else {
+            return .failed("目标输入框已失焦，同步已暂停，请重新聚焦")
+        }
         let pasteboard = NSPasteboard.general
         let savedItems = backupPasteboard(pasteboard)
         defer { restorePasteboard(pasteboard, items: savedItems) }
@@ -245,6 +268,10 @@ enum TextWriter {
         pasteboard.clearContents()
         pasteboard.setString(text, forType: .string)
         Thread.sleep(forTimeInterval: 0.03)
+
+        guard FocusController.validate(binding), selectionMatches(binding.element, range: expectedRange) else {
+            return .failed("目标输入框已失焦，已取消粘贴")
+        }
 
         guard KeyboardSynth.press(KeyShortcut(modifiers: ["command"], key: "v")) else {
             return .failed("无法发送粘贴")

@@ -3,6 +3,7 @@
 
 import CoreAudio
 import Foundation
+import AppKit
 
 protocol SessionManagerDelegate: AnyObject {
     /// 已配对连接数变化（用于菜单栏显示）。
@@ -37,6 +38,11 @@ final class SessionManager: ServerDelegate {
     private var activeControllerId: UUID?
     /// 当前活动目标绑定（仅一个，PRD 12.2）。
     private var activeBinding: TargetBinding?
+    private var followingFocus: (id: String, controllerID: UUID)?
+    private var followWaiting = false
+    private var followSelection: CFRange?
+    private var focusMonitor: DispatchSourceTimer?
+    private var selectionRequestID = UUID()
     /// 每目标已应用的最高 revision（旧版本丢弃，PRD 12.1）。
     private var revisionGate = RevisionGate()
     /// 发送决策与幂等去重（PRD 11.4 / 16.6）。
@@ -96,7 +102,14 @@ final class SessionManager: ServerDelegate {
         self.accessibilityGranted = accessibilityGranted
         self.config = config
         self.networkSettings = networkSettings
+        let monitor = DispatchSource.makeTimerSource(queue: focusQueue)
+        monitor.schedule(deadline: .now(), repeating: .milliseconds(150), leeway: .milliseconds(30))
+        monitor.setEventHandler { [weak self] in self?.pollFollowingFocus() }
+        monitor.resume()
+        focusMonitor = monitor
     }
+
+    deinit { focusMonitor?.cancel() }
 
     // MARK: - ServerDelegate
 
@@ -145,6 +158,8 @@ final class SessionManager: ServerDelegate {
             }
         case "select_target":
             handleSelectTarget(conn, data: data)
+        case "follow_current":
+            handleFollowCurrent(conn, data: data)
         case "text_snapshot":
             handleTextSnapshot(conn, data: data)
         case "clear":
@@ -208,6 +223,7 @@ final class SessionManager: ServerDelegate {
         if activeControllerId == conn.id {
             activeControllerId = nil
             activeBinding = nil
+            followingFocus = nil
             editorStates.removeAll()
             dynamicProfiles.removeAll()
         }
@@ -229,6 +245,7 @@ final class SessionManager: ServerDelegate {
     func handleSystemWillSleep() {
         lock.lock()
         activeBinding = nil
+        followingFocus = nil
         editorStates.removeAll()
         dynamicProfiles.removeAll()
         let oldVoiceStates = Array(voiceStates.values)
@@ -252,6 +269,7 @@ final class SessionManager: ServerDelegate {
         voiceChunkRateLimiters.removeAll()
         activeControllerId = nil
         activeBinding = nil
+        followingFocus = nil
         editorStates.removeAll()
         dynamicProfiles.removeAll()
         let oldVoiceStates = Array(voiceStates.values)
@@ -293,7 +311,11 @@ final class SessionManager: ServerDelegate {
             let previousActive = activeControllerId
             activeControllerId = conn.id
             // 接管控制权 → 旧绑定失效，等新会话重新选目标。
-            if previousActive != conn.id { activeBinding = nil }
+            if previousActive != conn.id {
+                activeBinding = nil
+                followingFocus = nil
+                selectionRequestID = UUID()
+            }
         }
         let count = paired.count
         lock.unlock()
@@ -308,10 +330,99 @@ final class SessionManager: ServerDelegate {
     }
 
     func handleFrontmostApplicationChanged() {
+        let foregroundPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
+        lock.lock()
+        let previous = activeBinding
+        let isFollowing = followingFocus != nil
+        let controller = activeControllerId.flatMap { paired[$0] }
+        let paused = previous.map { $0.pid != foregroundPID } ?? false
+        if paused { activeBinding = nil }
+        lock.unlock()
+        if paused, !isFollowing, let previous, let controller {
+            send(controller, TargetStatusMessage(sessionId: previous.sessionId, targetId: previous.targetId,
+                                                  status: .notFocused, errorCode: .targetNotFocused,
+                                                  message: "你已切换应用，同步已暂停；请点击重新聚焦"))
+            delegate?.sessionDidLog("sync_paused foreground_changed target=\(previous.targetId.rawValue)")
+        }
         broadcastPhoneTargets()
     }
 
-    struct TargetedEnvelope: Codable { let sessionId: String; let targetId: TargetId }
+    private func handleFollowCurrent(_ conn: Connection, data: Data) {
+        guard let message = try? ProtocolCodec.decoder.decode(FollowCurrentMessage.self, from: data),
+              !message.followId.isEmpty, message.followId.count <= 128 else {
+            sendError(conn, code: .badMessage, message: "follow_current 结构错误")
+            return
+        }
+        lock.lock()
+        guard activeControllerId == conn.id else { lock.unlock(); return }
+        followingFocus = (message.followId, conn.id)
+        followWaiting = false
+        followSelection = nil
+        activeBinding = nil
+        selectionRequestID = UUID()
+        lock.unlock()
+        focusQueue.async { [weak self] in self?.pollFollowingFocus() }
+    }
+
+    /// Serialized with all writes, so our own temporary selection is never
+    /// mistaken for the user moving the caret. No app activation occurs here.
+    private func pollFollowingFocus() {
+        lock.lock()
+        guard let follow = followingFocus, activeControllerId == follow.controllerID,
+              let conn = paired[follow.controllerID] else { lock.unlock(); return }
+        let previous = activeBinding
+        let expectedSelection = followSelection
+        let waiting = followWaiting
+        lock.unlock()
+
+        let candidate = FocusController.currentInput(sessionId: UUID().uuidString)
+        let selection = candidate.flatMap { AXSupport.selectedTextRange(of: $0.element) }
+        if let candidate, let previous, let selection, let expectedSelection,
+           candidate.pid == previous.pid, CFEqual(candidate.element, previous.element),
+           selection.location == expectedSelection.location, selection.length == expectedSelection.length {
+            return
+        }
+        if candidate == nil && waiting { return }
+        let profile = candidate == nil ? nil : currentAppProfile()
+        if let candidate {
+            guard profile?.bundleId == candidate.bundleId, FocusController.validate(candidate) else { return }
+        }
+
+        lock.lock()
+        guard followingFocus?.id == follow.id, activeControllerId == follow.controllerID,
+              activeBinding?.id == previous?.id else { lock.unlock(); return }
+        activeBinding = candidate
+        followSelection = selection
+        followWaiting = candidate == nil
+        revisionGate.reset(.currentApp)
+        editorStates = editorStates.filter { $0.key.targetId != .currentApp }
+        dynamicProfiles = dynamicProfiles.filter { $0.key.targetId != .currentApp }
+        if let candidate, let profile {
+            dynamicProfiles[DynamicSessionKey(sessionId: candidate.sessionId, targetId: .currentApp)] = profile
+        }
+        lock.unlock()
+        let sessionId = candidate?.sessionId ?? UUID().uuidString
+        send(conn, FocusContextMessage(followId: follow.id, sessionId: sessionId,
+                                       focused: candidate != nil, displayName: profile?.displayName,
+                                       message: candidate == nil ? "等待 Mac 上的输入光标，点进输入框后会自动继续" : "自动跟随 Mac 光标，无需清空或重新聚焦"))
+        delegate?.sessionDidLog("follow_context focused=\(candidate != nil) session=\(sessionId.prefix(8))")
+    }
+
+    private func bindingIsCurrent(_ binding: TargetBinding, controllerID: UUID) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        return activeControllerId == controllerID && activeBinding?.id == binding.id
+    }
+
+    private func invalidateBinding(_ binding: TargetBinding) {
+        lock.lock(); defer { lock.unlock() }
+        if activeBinding?.id == binding.id { activeBinding = nil }
+    }
+
+    struct TargetedEnvelope: Codable {
+        let sessionId: String
+        let targetId: TargetId
+        let userInitiated: Bool?
+    }
 
     /// 处理目标选择：后台激活+聚焦，记录绑定，回 target_status。PRD 9。
     private func handleSelectTarget(_ conn: Connection, data: Data) {
@@ -319,6 +430,20 @@ final class SessionManager: ServerDelegate {
             sendError(conn, code: .badMessage, message: "select_target 结构错误")
             return
         }
+        // Older open pages automatically resend select_target on reconnect.
+        // Require a fresh user action before binding or replaying any draft.
+        guard env.userInitiated == true else {
+            send(conn, TargetStatusMessage(sessionId: env.sessionId, targetId: env.targetId,
+                                           status: .notFocused, errorCode: .targetNotFocused,
+                                           message: "同步已暂停；请刷新手机网页后点击重新聚焦"))
+            return
+        }
+        let requestID = UUID()
+        lock.lock()
+        followingFocus = nil
+        activeBinding = nil
+        selectionRequestID = requestID
+        lock.unlock()
         guard let profile = profileForSelection(targetId: env.targetId, sessionId: env.sessionId) else {
             send(conn, TargetStatusMessage(sessionId: env.sessionId, targetId: env.targetId,
                                            status: .error, errorCode: .unknownTarget,
@@ -339,7 +464,18 @@ final class SessionManager: ServerDelegate {
 
         focusQueue.async { [weak self, weak conn] in
             guard let self, let conn else { return }
-            let outcome = FocusController.focus(targetId: env.targetId, sessionId: env.sessionId, profile: profile)
+            guard self.ensureActive(conn) else { return }
+            self.lock.lock()
+            let currentRequest = self.selectionRequestID == requestID
+            self.lock.unlock()
+            guard currentRequest else { return }
+            let outcome = FocusController.focus(targetId: env.targetId, sessionId: env.sessionId, profile: profile,
+                                                allowActivation: true)
+            guard self.ensureActive(conn) else { return }
+            self.lock.lock()
+            let stillCurrent = self.selectionRequestID == requestID
+            self.lock.unlock()
+            guard stillCurrent else { return }
             let status: TargetStatusMessage
             switch outcome {
             case .focused(let binding):
@@ -511,6 +647,7 @@ final class SessionManager: ServerDelegate {
         let voiceSettings = settings
         focusQueue.async { [weak self, weak conn] in
             guard let self, let conn else { return }
+
             let outcome = FocusController.focus(targetId: msg.targetId, sessionId: msg.sessionId, profile: profile)
             switch outcome {
             case .focused(let binding):
@@ -670,6 +807,9 @@ final class SessionManager: ServerDelegate {
         focusQueue.async { [weak self, weak conn] in
             guard let self, let conn else { return }
 
+            // Detect a different field/caret even before the next monitor tick.
+            self.pollFollowingFocus()
+
             self.lock.lock()
             let stillFresh = self.revisionGate.shouldApply(targetId, revision: revision)
             self.lock.unlock()
@@ -679,14 +819,18 @@ final class SessionManager: ServerDelegate {
                 return
             }
 
-            // 剪贴板写入会自行重新激活目标，放宽前台校验（控制端常在另一设备/窗口）。
-            let emptyAutoClearUsesClipboard = text.isEmpty && prof.writeMode == .auto && prof.allowSelectAllReplace
-            let requireFrontmost = !(prof.syncMode == .editor || prof.writeMode.usesClipboard || emptyAutoClearUsesClipboard)
-            guard FocusController.validate(binding, requireFrontmost: requireFrontmost) else {
-                self.lock.lock(); self.activeBinding = nil; self.lock.unlock()
+            // Queued snapshots cannot revive a paused or replaced binding.
+            guard self.bindingIsCurrent(binding, controllerID: conn.id) else {
+                self.send(conn, TextAckMessage(sessionId: sessionId, targetId: targetId,
+                                               revision: revision, applied: false, errorCode: .targetNotFocused,
+                                               message: "同步已暂停，请重新聚焦", verified: false))
+                return
+            }
+            guard FocusController.validate(binding) else {
+                self.invalidateBinding(binding)
                 self.send(conn, TargetStatusMessage(sessionId: sessionId, targetId: targetId,
                                                     status: .notFocused, errorCode: .targetNotFocused,
-                                                    message: "目标失焦"))
+                                                    message: "你已切换应用或输入框，同步已暂停；请点击重新聚焦"))
                 self.send(conn, TextAckMessage(sessionId: sessionId, targetId: targetId,
                                                revision: revision, applied: false, errorCode: .targetNotFocused,
                                                message: "目标失焦", verified: false))
@@ -711,6 +855,13 @@ final class SessionManager: ServerDelegate {
                         self.editorStates[key] = nextState
                     } else {
                         self.editorStates.removeValue(forKey: key)
+                    }
+                    if self.followingFocus != nil, self.activeBinding?.id == binding.id {
+                        if let nextState {
+                            self.followSelection = CFRangeMake(nextState.location + nextState.length, 0)
+                        } else if let editorState {
+                            self.followSelection = CFRangeMake(editorState.location, 0)
+                        }
                     }
                     self.lock.unlock()
                 case .failed(let message):
@@ -751,16 +902,27 @@ final class SessionManager: ServerDelegate {
         }
         let targetId = msg.targetId
         let revision = msg.revision
-        guard let profile = profileForActiveSession(targetId: targetId, sessionId: msg.sessionId) else {
+        let explicitEnter = msg.pressEnter == true
+        guard !explicitEnter || targetId == .currentApp else {
+            sendError(conn, code: .badMessage, message: "pressEnter 仅适用于当前应用")
+            return
+        }
+        guard var selectedProfile = profileForActiveSession(targetId: targetId, sessionId: msg.sessionId) else {
             send(conn, SendResultMessage(sessionId: msg.sessionId, targetId: targetId,
                                          revision: revision, success: false, errorCode: .unknownTarget,
                                          message: "目标未启用、尚未配置 Bundle ID，或当前应用不可用"))
             return
         }
+        if explicitEnter {
+            selectedProfile.sendMode = .key
+            selectedProfile.sendShortcut = .enter
+        }
+        let profile = selectedProfile
 
         lock.lock()
         let decision = sendGate.decide(sessionId: msg.sessionId, targetId: targetId,
-                                       revision: revision, appliedRevision: revisionGate.current(targetId))
+                                       revision: revision, appliedRevision: revisionGate.current(targetId),
+                                       requireExactRevision: explicitEnter)
         let binding = activeBinding
         lock.unlock()
 
@@ -793,17 +955,31 @@ final class SessionManager: ServerDelegate {
         focusQueue.async { [weak self, weak conn] in
             guard let self, let conn else { return }
 
-            // 剪贴板写入目标的 SendAction 会自行重新激活，放宽前台校验。
-            let requireFrontmost = !(profile.syncMode == .editor || profile.writeMode.usesClipboard)
-            guard FocusController.validate(binding, requireFrontmost: requireFrontmost) else {
-                self.lock.lock(); self.activeBinding = nil; self.lock.unlock()
+            // Serialize caret detection and deduplication with writes and all sends.
+            // Two requests may both have passed the optimistic check above.
+            self.pollFollowingFocus()
+            self.lock.lock()
+            let currentDecision = self.sendGate.decide(sessionId: msg.sessionId, targetId: targetId,
+                revision: revision, appliedRevision: self.revisionGate.current(targetId),
+                requireExactRevision: explicitEnter)
+            let expectedSelection = explicitEnter && self.followingFocus != nil ? self.followSelection : nil
+            self.lock.unlock()
+            if currentDecision != .proceed {
+                self.send(conn, SendResultMessage(sessionId: msg.sessionId, targetId: targetId,
+                    revision: revision, success: currentDecision == .duplicate,
+                    errorCode: currentDecision == .duplicate ? nil : .staleRevision,
+                    message: currentDecision == .duplicate ? "已按下 Enter，无需重复" : "文本版本已变化，已取消发送"))
+                return
+            }
+            guard self.bindingIsCurrent(binding, controllerID: conn.id), FocusController.validate(binding) else {
+                self.invalidateBinding(binding)
                 self.send(conn, SendResultMessage(sessionId: msg.sessionId, targetId: targetId,
                                                   revision: revision, success: false, errorCode: .targetNotFocused,
                                                   message: "发送前目标已失焦"))
                 return
             }
 
-            let result = SendAction.perform(profile: profile, binding: binding)
+            let result = SendAction.perform(profile: profile, binding: binding, expectedSelection: expectedSelection)
             switch result {
             case .sent:
                 // 标记幂等键，发送动作只执行一次（PRD 13 / 16.6）。
@@ -1170,9 +1346,11 @@ final class SessionManager: ServerDelegate {
         profile.focusWaitMs = 250
         profile.clearAfterSend = true
         profile.allowEmpty = false
-        profile.allowSelectAllReplace = true
-        profile.writeMode = .auto
-        profile.syncMode = .mirror
+        // Local setup: mirror only this dictation's insertion at the current caret.
+        profile.allowSelectAllReplace = false
+        profile.writeMode = .clipboardInsert
+        profile.syncMode = .editor
+        profile.sendMode = .noneSyncOnly
         return profile.normalized()
     }
 
@@ -1303,7 +1481,7 @@ final class SessionManager: ServerDelegate {
 
     static func requiresActiveController(_ type: String) -> Bool {
         switch type {
-        case "select_target", "text_snapshot", "clear", "send":
+        case "select_target", "follow_current", "text_snapshot", "clear", "send":
             return true
         default:
             return false

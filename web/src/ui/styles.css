@@ -337,6 +337,8 @@ textarea {
   margin-top: 10px;
 }
 
+.card__actions button[hidden] { display: none; }
+
 .btn {
   min-height: var(--tap);
   min-width: var(--tap);
