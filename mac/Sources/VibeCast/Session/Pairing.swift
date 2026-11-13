@@ -1,5 +1,5 @@
 // 配对令牌生成与持久化。PRD 15.2。
-// MVP：单一长期令牌保存在 UserDefaults（二维码配对/一次性配对码在二期）。
+// 单一长期令牌保存在 UserDefaults; 配对窗口将当前完整连接 URL 编码为本地二维码。
 
 import Foundation
 

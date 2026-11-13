@@ -2,6 +2,7 @@
 // 组装 Server + SessionManager，渲染状态栏菜单：运行状态/地址/连接数/权限/重启/日志/退出。
 
 import AppKit
+import CoreServices
 import Sparkle
 
 final class AppDelegate: NSObject, NSApplicationDelegate, SessionManagerDelegate {
@@ -11,6 +12,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SessionManagerDelegate
     private var session: SessionManager!
     private let updaterController = SPUStandardUpdaterController(startingUpdater: !(Bundle.main.object(forInfoDictionaryKey: "SUFeedURL") as? String ?? "").isEmpty, updaterDelegate: nil, userDriverDelegate: nil)
     private var aboutWindowController: AboutWindowController?
+    private var pairingWindowController: PairingWindowController?
     private let networkSettings = NetworkSettingsStore()
 
     private var pairedCount = 0
@@ -40,7 +42,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SessionManagerDelegate
 
         registerSleepWakeObservers()
         registerFrontmostAppObserver()
+        let launchKind = NSAppleEventManager.shared().currentAppleEvent?
+            .paramDescriptor(forKeyword: keyAEPropData)?.enumCodeValue
+        // Login/service launches stay passive; explicit launches and reopens show pairing.
+        if launchKind != keyAELaunchedAsLogInItem && launchKind != keyAELaunchedAsServiceItem {
+            showPairingWindow()
+        }
     }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        showPairingWindow()
+        return false
+    }
+
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
     func applicationWillTerminate(_ notification: Notification) {
         session?.restoreManagedVoiceInput()
@@ -222,6 +237,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SessionManagerDelegate
             menu.addItem(permItem)
         }
 
+        let pairingItem = NSMenuItem(title: MacI18n.t("openPairing"), action: #selector(showPairingWindow), keyEquivalent: "p")
+        pairingItem.target = self
+        menu.addItem(pairingItem)
+
         let configItem = NSMenuItem(title: MacI18n.t("openConfig"), action: #selector(openConfigPage), keyEquivalent: ",")
         configItem.target = self
         menu.addItem(configItem)
@@ -253,6 +272,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SessionManagerDelegate
         menu.addItem(quitItem)
 
         statusItem.menu = menu
+        refreshPairingWindow()
     }
 
     private func makeInfo(_ title: String) -> NSMenuItem {
@@ -298,6 +318,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SessionManagerDelegate
     }
 
     // MARK: - 菜单动作
+
+    @objc private func showPairingWindow() {
+        if pairingWindowController == nil {
+            pairingWindowController = PairingWindowController(
+                openSettings: { [weak self] in self?.openConfigPage() },
+                openAccessibility: { AccessibilityPermission.openSettings() })
+        }
+        refreshPairingWindow()
+        pairingWindowController?.present()
+    }
+
+    private func refreshPairingWindow() {
+        pairingWindowController?.update(PairingWindowState(
+            url: accessURL(path: "/"), serviceRunning: phoneServer != nil,
+            accessibilityGranted: accessibilityGranted(), connectedPhones: pairedCount))
+    }
 
     @objc private func copyAddress(_ sender: NSMenuItem) {
         guard let url = sender.representedObject as? String else { return }

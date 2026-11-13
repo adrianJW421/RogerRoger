@@ -1,5 +1,5 @@
 // VibeCast 菜单栏服务入口。
-// 以 LSUIElement（无 Dock 图标）方式运行，仅在状态栏提供入口。
+// 以 LSUIElement（无 Dock 图标）方式运行，提供菜单栏入口和显式启动时的手机配对窗口。
 
 import AppKit
 

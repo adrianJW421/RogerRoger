@@ -47,9 +47,10 @@ jobs:
           bash scripts/test_ax_range.sh
           bash scripts/test_focus_guard.sh
           bash scripts/test_packaged_resources.sh
+          bash scripts/test_pairing.sh
       - name: Build and verify Mac preview
         env:
-          VERSION: '0.4.0'
-          BUILD_NUMBER: '10.7'
+          VERSION: '0.4.1'
+          BUILD_NUMBER: '10.8'
           SWIFT_ARCHS: arm64
         run: bash scripts/build_app.sh

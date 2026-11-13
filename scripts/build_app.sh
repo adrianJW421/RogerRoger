@@ -10,7 +10,7 @@ STAGING_DIR="$(cd "$STAGING_DIR" && pwd -P)"
 APP="$STAGING_DIR/RogerRoger.app"
 DIST_APP="$DIST/RogerRoger.app"
 BUNDLE_ID="${BUNDLE_ID:-com.vibecast.app}"
-VERSION="${VERSION:-0.4.0}"
+VERSION="${VERSION:-0.4.1}"
 BUILD_NUMBER="${BUILD_NUMBER:-$VERSION}"
 SWIFT_ARCHS="${SWIFT_ARCHS:-arm64 x86_64}"
 APPCAST_URL="${APPCAST_URL:-}"
@@ -113,10 +113,8 @@ need_cmd swift
 need_cmd ditto
 need_cmd lipo
 
-SWIFT_BUILD_ARGS=(-c release)
-for arch in $SWIFT_ARCHS; do
-  SWIFT_BUILD_ARGS+=(--arch "$arch")
-done
+SWIFT_BUILD_ARGS=(-c release -Xswiftc -file-prefix-map -Xswiftc "$ROOT=RogerRoger"
+  -Xswiftc -debug-prefix-map -Xswiftc "$ROOT=RogerRoger")
 
 NODE_MAJOR="$(node -p 'Number(process.versions.node.split(".")[0])')"
 if [ "$NODE_MAJOR" -lt 18 ]; then
@@ -143,11 +141,19 @@ if grep -q "Placeholder. Run" "$WEB_RES/index.html" "$WEB_RES/config.html"; then
 fi
 
 echo "==> Release 构建 Swift 可执行文件 ($SWIFT_ARCHS)"
-( cd "$MAC" && swift build "${SWIFT_BUILD_ARGS[@]}" )
-
-BIN_DIR="$(cd "$MAC" && swift build "${SWIFT_BUILD_ARGS[@]}" --show-bin-path | tail -n 1)"
-BIN="$BIN_DIR/VibeCast"
-[ -x "$BIN" ] || { echo "未找到可执行文件 $BIN"; exit 1; }
+# Build each architecture independently so universal packaging also works with
+# Command Line Tools, without requiring the Xcode-only multi-arch build backend.
+ARCH_BINARIES=()
+BIN_DIR=""
+for arch in $SWIFT_ARCHS; do
+  ( cd "$MAC" && swift build "${SWIFT_BUILD_ARGS[@]}" --arch "$arch" )
+  arch_dir="$(cd "$MAC" && swift build "${SWIFT_BUILD_ARGS[@]}" --arch "$arch" --show-bin-path | tail -n 1)"
+  [ -x "$arch_dir/VibeCast" ] || { echo "未找到 $arch 可执行文件"; exit 1; }
+  ARCH_BINARIES+=("$arch_dir/VibeCast")
+  if [ -z "$BIN_DIR" ]; then BIN_DIR="$arch_dir"; fi
+done
+BIN="$STAGING_DIR/VibeCast"
+lipo -create "${ARCH_BINARIES[@]}" -output "$BIN"
 verify_binary_archs "$BIN"
 
 echo "==> 组装 .app bundle"
@@ -155,6 +161,8 @@ rm -rf "$APP" "$DIST_APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/Frameworks"
 
 cp "$BIN" "$APP/Contents/MacOS/VibeCast"
+strip -S -x "$APP/Contents/MacOS/VibeCast"
+cp "$ROOT/LICENSE" "$APP/Contents/Resources/LICENSE.txt"
 verify_binary_archs "$APP/Contents/MacOS/VibeCast"
 
 if [ -f "$APP_ICON" ]; then
@@ -186,6 +194,8 @@ if [ -z "$SPARKLE_FRAMEWORK" ]; then
   exit 1
 fi
 ditto --norsrc "$SPARKLE_FRAMEWORK" "$APP/Contents/Frameworks/Sparkle.framework"
+verify_binary_archs "$APP/Contents/Frameworks/Sparkle.framework/Versions/B/Sparkle"
+cp "$MAC/.build/artifacts/sparkle/Sparkle/LICENSE" "$APP/Contents/Resources/Sparkle-LICENSE.txt"
 
 if command -v install_name_tool >/dev/null 2>&1; then
   install_name_tool -add_rpath "@executable_path/../Frameworks" "$APP/Contents/MacOS/VibeCast" 2>/dev/null || true
@@ -208,6 +218,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <!-- 菜单栏 App：不在 Dock 显示 -->
   <key>LSUIElement</key><true/>
   <key>NSHighResolutionCapable</key><true/>
+  <key>NSLocalNetworkUsageDescription</key><string>Connect to your phone on the local network to receive dictated text at your Mac cursor.</string>
   <key>SUEnableAutomaticChecks</key><false/>
   <key>SUAutomaticallyUpdate</key><false/>
   <key>SUFeedURL</key><string>$APPCAST_URL</string>

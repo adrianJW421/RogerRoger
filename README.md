@@ -15,13 +15,17 @@ RogerRoger 使用手机上已有的搜狗输入法小米版完成语音识别, M
 
 ## 使用
 
-1. 在 Mac 启动菜单栏 App, 授予辅助功能权限.
-2. 手机与 Mac 使用可互通的局域网. 在手机 App「连接设置」粘贴 Mac 菜单里的完整配对链接.
+1. 下载 [macOS 安装包](https://github.com/adrianJW421/RogerRoger/releases/tag/v0.4.1), 打开 DMG, 把 RogerRoger 拖到 Applications, 再从应用程序启动.
+2. 配对窗口会自动打开. 手机与 Mac 连接同一个 Wi-Fi, 用手机扫码工具识别二维码并复制完整链接, 粘贴到 Android App「连接设置」; 也可以在 Mac 点击「复制配对链接」. 按窗口提示开启辅助功能权限.
 3. 在 Mac 点进要输入的文本框.
 4. 手机点「开始说话」, 等绿色提示后开口.
 5. 说完点停止; 可以马上点「发送 (Enter)」, App 会自动等待收尾与同步.
 
 发送按钮等同于目标输入框中的 Enter. 目标应用把 Enter 解释为发送还是换行, 遵循该应用本来的设置.
+
+关闭配对窗口后服务仍在菜单栏运行; 再次双击 App 或选择菜单栏「连接手机」可重新打开. 登录自启动和连接状态刷新不会弹窗或抢输入焦点. Android 0.1.3 尚无内置扫码器, 扫码后需复制链接到 App, 不会自动跳转配对.
+
+Mac 包为本地签名的未公证预览版. 如果系统阻止首次打开, 先尝试启动一次, 再到「系统设置 → 隐私与安全性」对 RogerRoger 选择「仍要打开」. 参见 [Apple 的首次打开说明](https://support.apple.com/en-us/102445). 无需关闭系统整体安全检查.
 
 ## 当前支持范围
 
@@ -29,7 +33,7 @@ RogerRoger 使用手机上已有的搜狗输入法小米版完成语音识别, M
 
 Mac 要求 macOS 13+ 与可编辑的辅助功能输入控件. 推荐使用「当前应用」路径; 上游固定应用卡片保留兼容, 不在本轮完整验收范围内.
 
-Android 安装包见 [0.1.3 预览版 Release](https://github.com/adrianJW421/RogerRoger/releases/tag/android-v0.1.3), 最低 Android 12. Mac 接收端按下方说明构建. 已有 VibeCast 0.1.2 Android 安装可使用同一签名的 RogerRoger 0.1.3 覆盖更新.
+Android 安装包见 [0.1.3 预览版 Release](https://github.com/adrianJW421/RogerRoger/releases/tag/android-v0.1.3), 最低 Android 12. Mac 通用安装包见 [0.4.1 Release](https://github.com/adrianJW421/RogerRoger/releases/tag/v0.4.1), 支持 Apple Silicon 与 Intel. 已有 VibeCast 0.1.2 Android 安装可使用同一签名的 RogerRoger 0.1.3 覆盖更新.
 
 ## 构建
 
@@ -43,10 +47,12 @@ npm ci
 npm test
 npm run typecheck
 cd ..
-VERSION=0.4.0 BUILD_NUMBER=10.7 SWIFT_ARCHS=arm64 bash scripts/build_app.sh
+VERSION=0.4.1 BUILD_NUMBER=10.8 SWIFT_ARCHS="arm64 x86_64" bash scripts/build_app.sh
 ```
 
-输出 `dist/RogerRoger.app` 与 `dist/RogerRoger-0.4.0-macos.zip`. Intel / 通用包可按工具链情况设置 `SWIFT_ARCHS`.
+输出 `dist/RogerRoger.app` 与 `dist/RogerRoger-0.4.1-macos.zip`. Intel / 通用包可按工具链情况设置 `SWIFT_ARCHS`.
+
+可分发 DMG 使用 `bash scripts/build_macos_dmg.sh`, 从当前 Git 提交的干净源码构建, 输出 `dist/RogerRoger-0.4.1-macos-universal.dmg`. 未提交的改动和本地资料不进入此产物.
 
 默认不配置 Sparkle 更新源, 自动更新关闭. 如需发布自动更新, 配置自己的 `APPCAST_URL` 与 `SPARKLE_PUBLIC_ED_KEY`, 不使用上游项目的签名或更新源.
 
